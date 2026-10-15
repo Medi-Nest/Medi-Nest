@@ -6,11 +6,17 @@ from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timezone
 from enum import Enum
 from typing import Any, Mapping
+from uuid import uuid4
 
 
 def utc_now() -> datetime:
     """Return an aware UTC timestamp for persisted domain events."""
     return datetime.now(timezone.utc)
+
+
+def new_record_id() -> str:
+    """Generate a stable identifier for a new domain record."""
+    return str(uuid4())
 
 
 def _require_aware(value: datetime, field_name: str) -> None:
@@ -48,6 +54,19 @@ class PrescriptionStatus(str, Enum):
     INVALID = "INVALID"
     EXPIRED = "EXPIRED"
     MANUAL_REVIEW_REQUIRED = "MANUAL_REVIEW_REQUIRED"
+
+
+@dataclass(frozen=True, slots=True)
+class PrescriptionStateChange:
+    previous_status: PrescriptionStatus
+    new_status: PrescriptionStatus
+    changed_at: datetime
+    reason: str | None = None
+
+    def __post_init__(self) -> None:
+        _require_aware(self.changed_at, "changed_at")
+        if self.previous_status == self.new_status:
+            raise ValueError("a state change must change the prescription status")
 
 
 class MedicationRequestStatus(str, Enum):
@@ -134,13 +153,44 @@ class Prescription:
     prescriber_reference: str | None = None
     validation_reason: str | None = None
     created_at: datetime = field(default_factory=utc_now)
+    state_changes: tuple[PrescriptionStateChange, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.prescription_id.strip() or not self.patient_id.strip():
             raise ValueError("prescription_id and patient_id are required")
+        object.__setattr__(self, "state_changes", tuple(self.state_changes))
         _require_aware(self.created_at, "created_at")
         if self.authored_on is not None:
             _require_aware(self.authored_on, "authored_on")
+        last_at = self.created_at
+        for index, change in enumerate(self.state_changes):
+            if change.changed_at < last_at:
+                raise ValueError("prescription state changes must be chronological")
+            if index and change.previous_status != self.state_changes[index - 1].new_status:
+                raise ValueError("prescription state changes must form a continuous history")
+            last_at = change.changed_at
+        if self.state_changes and self.status != self.state_changes[-1].new_status:
+            raise ValueError("prescription status must match its latest state change")
+
+
+def transition_prescription(
+    prescription: Prescription,
+    new_status: PrescriptionStatus,
+    *,
+    at: datetime | None = None,
+    reason: str | None = None,
+) -> Prescription:
+    """Record a validation-state change without losing the original record."""
+    changed_at = at if at is not None else utc_now()
+    change = PrescriptionStateChange(prescription.status, new_status, changed_at, reason)
+    if changed_at < (prescription.state_changes[-1].changed_at if prescription.state_changes else prescription.created_at):
+        raise ValueError("transition time cannot precede the last state change")
+    return replace(
+        prescription,
+        status=new_status,
+        validation_reason=reason,
+        state_changes=prescription.state_changes + (change,),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,6 +202,7 @@ class MedicationRequest:
     medicine_name: str | None = None
     dosage_text: str | None = None
     request_status: MedicationRequestStatus = MedicationRequestStatus.PENDING
+    created_at: datetime = field(default_factory=utc_now)
 
     def __post_init__(self) -> None:
         if not self.medication_request_id.strip() or not self.prescription_id.strip():
@@ -162,6 +213,7 @@ class MedicationRequest:
             raise ValueError("medicine_code or medicine_name is required")
         if self.requested_quantity <= 0:
             raise ValueError("requested_quantity must be greater than zero")
+        _require_aware(self.created_at, "created_at")
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,6 +236,40 @@ class Booking:
         _require_aware(self.updated_at, "updated_at")
         if self.updated_at < self.created_at:
             raise ValueError("updated_at cannot be earlier than created_at")
+
+
+@dataclass(frozen=True, slots=True)
+class PrescriptionRecord:
+    """A linked intake record with one or more medication requests and bookings."""
+
+    patient: Patient
+    prescription: Prescription
+    medication_requests: tuple[MedicationRequest, ...]
+    bookings: tuple[Booking, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "medication_requests", tuple(self.medication_requests))
+        object.__setattr__(self, "bookings", tuple(self.bookings))
+        if self.prescription.patient_id != self.patient.patient_id:
+            raise ValueError("prescription patient does not match the intake patient")
+        if not self.medication_requests:
+            raise ValueError("a prescription requires at least one medication request")
+        request_ids: set[str] = set()
+        for request in self.medication_requests:
+            if request.prescription_id != self.prescription.prescription_id:
+                raise ValueError("medication request does not belong to this prescription")
+            if request.medication_request_id in request_ids:
+                raise ValueError("duplicate medication request identifier")
+            request_ids.add(request.medication_request_id)
+        booking_ids: set[str] = set()
+        for booking in self.bookings:
+            if booking.booking_id in booking_ids:
+                raise ValueError("duplicate booking identifier")
+            booking_ids.add(booking.booking_id)
+            if booking.patient_id != self.patient.patient_id or booking.prescription_id != self.prescription.prescription_id:
+                raise ValueError("booking does not belong to this patient and prescription")
+            if booking.medication_request_id not in request_ids:
+                raise ValueError("booking does not reference a medication request in this prescription")
 
 
 _BOOKING_TRANSITIONS: Mapping[BookingStatus, frozenset[BookingStatus]] = {
