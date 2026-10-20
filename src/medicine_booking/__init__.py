@@ -37,6 +37,10 @@ from .safety import (
     PriorityOverride, SafetyPolicy, check_allocation_safety, override_priority,
     patient_status_message,
 )
+from .access import (
+    ROLE_PERMISSIONS, AccessDenied, Principal, UploadPolicy,
+    authorize_patient_record, public_error_message, validate_upload,
+)
 from .waitlist import (
     InMemoryInventoryGateway, InventoryGateway, RestockEvent, RestockResult,
     WaitlistService,
@@ -49,11 +53,13 @@ __all__ = [
     "NotificationEvent", "Patient", "Prescription", "PrescriptionRecord",
     "PrescriptionSource", "PrescriptionStateChange", "PrescriptionStatus",
     "PriorityContext", "WaitlistEntry", "WaitlistState", "new_record_id",
-    "transition_booking", "transition_prescription", "utc_now", "PriorityChange",
-    "PriorityEvaluation", "PriorityPolicy", "PriorityResult", "order_bookings",
-    "re_evaluate_bookings", "AllocationDecision", "EmergencyGuidance",
-    "ManualReview", "PharmacistPrincipal", "PriorityOverride", "SafetyPolicy",
-    "check_allocation_safety", "override_priority", "patient_status_message",
-    "InMemoryInventoryGateway", "InventoryGateway", "RestockEvent",
-    "RestockResult", "WaitlistService",
+    "transition_booking", "transition_prescription", "utc_now",
+    "PriorityChange", "PriorityEvaluation", "PriorityPolicy", "PriorityResult",
+    "order_bookings", "re_evaluate_bookings", "AllocationDecision",
+    "EmergencyGuidance", "ManualReview", "PharmacistPrincipal",
+    "PriorityOverride", "SafetyPolicy", "check_allocation_safety",
+    "override_priority", "patient_status_message", "InMemoryInventoryGateway",
+    "InventoryGateway", "RestockEvent", "RestockResult", "WaitlistService",
+    "ROLE_PERMISSIONS", "AccessDenied", "Principal", "UploadPolicy",
+    "authorize_patient_record", "public_error_message", "validate_upload",
 ]
