@@ -1,0 +1,27 @@
+{
+  "MBA-7": {
+    "start": "2026-10-12",
+    "end": "2026-10-20",
+    "description": "Implement prescription upload validation and manual-review states"
+  },
+  "MBA-10": {
+    "start": "2026-10-20",
+    "end": "2026-10-27",
+    "description": "Add structured e-prescription import and schema mapping"
+  },
+  "MBA-15": {
+    "start": "2026-10-27",
+    "end": "2026-11-03",
+    "description": "Build concurrency-safe inventory reservation service"
+  },
+  "MBA-18": {
+    "start": "2026-10-27",
+    "end": "2026-11-03",
+    "description": "Build pharmacist review and documented override workflow"
+  },
+  "MBA-22": {
+    "start": "2026-11-03",
+    "end": "2026-11-07",
+    "description": "Validate performance, reliability, and failure recovery"
+  }
+}
