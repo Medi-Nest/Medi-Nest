@@ -309,12 +309,18 @@ class PriorityContext:
     policy_version: str
     reason_codes: tuple[str, ...] = ()
     evaluated_at: datetime = field(default_factory=utc_now)
+    urgency_actor_id: str | None = None
+    urgency_verified_at: datetime | None = None
 
     def __post_init__(self) -> None:
         if not all((self.booking_id.strip(), self.verified_urgency.strip(), self.urgency_source.strip(), self.policy_version.strip())):
             raise ValueError("booking_id, urgency, urgency_source, and policy_version are required")
         _require_aware(self.waiting_since, "waiting_since")
         _require_aware(self.evaluated_at, "evaluated_at")
+        if self.urgency_actor_id is not None and not self.urgency_actor_id.strip():
+            raise ValueError("urgency_actor_id cannot be blank")
+        if self.urgency_verified_at is not None:
+            _require_aware(self.urgency_verified_at, "urgency_verified_at")
 
 
 @dataclass(frozen=True, slots=True)

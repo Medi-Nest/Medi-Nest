@@ -28,7 +28,10 @@ from .domain import (
     transition_prescription,
     utc_now,
 )
-from .priority import PriorityPolicy, PriorityResult, order_bookings
+from .priority import (
+    PriorityChange, PriorityEvaluation, PriorityPolicy, PriorityResult,
+    order_bookings, re_evaluate_bookings,
+)
 from .safety import AllocationDecision, check_allocation_safety
 
 __all__ = [
@@ -38,6 +41,7 @@ __all__ = [
     "NotificationEvent", "Patient", "Prescription", "PrescriptionRecord",
     "PrescriptionSource", "PrescriptionStateChange", "PrescriptionStatus",
     "PriorityContext", "WaitlistEntry", "WaitlistState", "new_record_id",
-    "transition_booking", "transition_prescription", "utc_now", "PriorityPolicy", "PriorityResult",
-    "order_bookings", "AllocationDecision", "check_allocation_safety",
+    "transition_booking", "transition_prescription", "utc_now", "PriorityChange",
+    "PriorityEvaluation", "PriorityPolicy", "PriorityResult", "order_bookings",
+    "re_evaluate_bookings", "AllocationDecision", "check_allocation_safety",
 ]
