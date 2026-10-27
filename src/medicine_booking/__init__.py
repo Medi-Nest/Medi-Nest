@@ -45,6 +45,9 @@ from .waitlist import (
     InMemoryInventoryGateway, InventoryGateway, RestockEvent, RestockResult,
     WaitlistService,
 )
+from .booking import (
+    BookingOutcome, BookingPolicy, BookingService, DuplicateAction, DuplicateMatch,
+)
 
 __all__ = [
     "ActorRole", "AuditEvent", "Booking", "BookingStatus", "ConsentStatus",
@@ -62,4 +65,6 @@ __all__ = [
     "InventoryGateway", "RestockEvent", "RestockResult", "WaitlistService",
     "ROLE_PERMISSIONS", "AccessDenied", "Principal", "UploadPolicy",
     "authorize_patient_record", "public_error_message", "validate_upload",
+    "BookingOutcome", "BookingPolicy", "BookingService", "DuplicateAction",
+    "DuplicateMatch",
 ]
