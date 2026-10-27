@@ -49,7 +49,8 @@ def build(*, stock=10, policy=None, notify=None, prescriptions=None, requests=No
     })
     priority = PriorityPolicy(
         "v1", {"URGENT": 0, "ROUTINE": 1},
-        {ContinuityStatus.CONTINUITY: 0, ContinuityStatus.UNKNOWN: 1},
+        {ContinuityStatus.CONTINUITY: 0, ContinuityStatus.NO_CONTINUITY: 1,
+         ContinuityStatus.UNKNOWN: 1},
         trusted_urgency_sources=frozenset({"booking-service"}),
     )
     waitlist = WaitlistService(

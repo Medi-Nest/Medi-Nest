@@ -99,6 +99,18 @@ Deterministic doubles (`MockPrescriptionSource`, `MockPatientContextSource`,
 `MockAuthProvider`, `MockNotificationSender`, `FaultyInventoryGateway`) replace
 real services in tests and demos.
 
+## Patient context and consent (MBA-11)
+
+`medicine_booking.patient_context.PatientContextService` asks the context
+source only for the attributes in `PatientContextPolicy` (by default just
+`continuity_of_therapy`), and only when the patient has a current GRANTED
+consent. Consent records keep who recorded them, when, the reference, and the
+expiry. Missing consent, a missing or non-boolean value, a timeout, or an
+unavailable source all give `UNKNOWN` with a reason, never a guess. Fields the
+source sends but the policy did not request are dropped before allocation
+sees them, and lookups are audited without their values.
+`refresh_continuity` stores the result in a booking's priority context.
+
 ### Known limits
 
 - State is in memory. A deployment must persist bookings, allocations,
