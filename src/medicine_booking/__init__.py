@@ -46,7 +46,11 @@ from .waitlist import (
     WaitlistService,
 )
 from .booking import (
-    BookingOutcome, BookingPolicy, BookingService, DuplicateAction, DuplicateMatch,
+    Allocation, AllocationOutcome, BookingOutcome, BookingPolicy, BookingService,
+    DuplicateAction, DuplicateMatch,
+)
+from .patient_views import (
+    PatientBookingView, patient_booking_view, patient_bookings, reason_message,
 )
 
 __all__ = [
@@ -66,5 +70,6 @@ __all__ = [
     "ROLE_PERMISSIONS", "AccessDenied", "Principal", "UploadPolicy",
     "authorize_patient_record", "public_error_message", "validate_upload",
     "BookingOutcome", "BookingPolicy", "BookingService", "DuplicateAction",
-    "DuplicateMatch",
+    "DuplicateMatch", "Allocation", "AllocationOutcome", "PatientBookingView",
+    "patient_booking_view", "patient_bookings", "reason_message",
 ]
