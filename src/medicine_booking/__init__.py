@@ -33,6 +33,10 @@ from .priority import (
     order_bookings, re_evaluate_bookings,
 )
 from .safety import AllocationDecision, check_allocation_safety
+from .waitlist import (
+    InMemoryInventoryGateway, InventoryGateway, RestockEvent, RestockResult,
+    WaitlistService,
+)
 
 __all__ = [
     "ActorRole", "AuditEvent", "Booking", "BookingStatus", "ConsentStatus",
@@ -44,4 +48,6 @@ __all__ = [
     "transition_booking", "transition_prescription", "utc_now", "PriorityChange",
     "PriorityEvaluation", "PriorityPolicy", "PriorityResult", "order_bookings",
     "re_evaluate_bookings", "AllocationDecision", "check_allocation_safety",
+    "InMemoryInventoryGateway", "InventoryGateway", "RestockEvent",
+    "RestockResult", "WaitlistService",
 ]
