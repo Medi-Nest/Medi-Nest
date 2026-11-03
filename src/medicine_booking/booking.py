@@ -1,25 +1,29 @@
-"""MBA-12: create medicine bookings and track their eligibility.
+"""MBA-12 and MBA-17: booking creation, direct allocation, partial allocation,
+reservation expiry, and cancellation.
 
 ``BookingService`` shares state, lock, and audit trail with ``WaitlistService``
-so a booking can later move to the waitlist without two copies of its state
-disagreeing.
+so a booking can move between direct reservation and the waitlist without two
+copies of its state disagreeing.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime
+from dataclasses import dataclass, replace
+from datetime import date, datetime, timedelta
 from enum import Enum
 
 from .access import (
-    BOOKING_CREATE_ANY, BOOKING_CREATE_OWN, PRESCRIPTION_REVIEW, Principal,
+    ALLOCATION_RUN, BOOKING_CANCEL_ANY, BOOKING_CANCEL_OWN, BOOKING_CREATE_ANY,
+    BOOKING_CREATE_OWN, PRESCRIPTION_REVIEW, RESERVATION_EXPIRE, Principal,
     authorize_patient_record,
 )
 from .domain import (
     ActorRole, AuditEvent, Booking, BookingStatus, ContinuityStatus,
     MedicationRequest, MedicationRequestStatus, Prescription, PrescriptionStatus,
-    PriorityContext, new_record_id, transition_booking, utc_now,
+    PriorityContext, WaitlistEntry, WaitlistState, new_record_id,
+    transition_booking, utc_now,
 )
+from .safety import check_allocation_safety
 from .waitlist import WaitlistService
 
 
@@ -49,6 +53,7 @@ _CLOSED_REQUEST = frozenset({
     MedicationRequestStatus.REJECTED, MedicationRequestStatus.CANCELLED,
     MedicationRequestStatus.FULFILLED,
 })
+_STOCK_HOLDING = frozenset({BookingStatus.RESERVED, BookingStatus.READY})
 
 
 def _aware(value: datetime) -> None:
@@ -58,10 +63,12 @@ def _aware(value: datetime) -> None:
 
 @dataclass(frozen=True, slots=True)
 class BookingPolicy:
-    """Configurable booking rules (REQ-PB-25, REQ-PB-26)."""
+    """Configurable booking rules (REQ-PB-25/26, REQ-AW-21/24)."""
 
     duplicate_action: DuplicateAction = DuplicateAction.REJECT
     duplicate_match: DuplicateMatch = DuplicateMatch.SAME_MEDICINE
+    partial_allocation: bool = False
+    reservation_duration: timedelta | None = None
     # When set, an eligible booking gets this starting urgency from a trusted
     # system source until a pharmacist confirms a different one. Patients
     # never supply urgency.
@@ -70,6 +77,8 @@ class BookingPolicy:
     policy_version: str = "v1"
 
     def __post_init__(self) -> None:
+        if self.reservation_duration is not None and self.reservation_duration <= timedelta():
+            raise ValueError("reservation duration must be positive")
         if self.default_urgency is not None and not self.default_urgency.strip():
             raise ValueError("default urgency cannot be blank")
         if not self.default_urgency_source.strip() or not self.policy_version.strip():
@@ -89,6 +98,51 @@ class BookingOutcome:
         return self.booking is not None and self.booking.booking_state is BookingStatus.ELIGIBLE
 
 
+@dataclass(frozen=True, slots=True)
+class Allocation:
+    """A direct stock reservation for one booking (REQ-AW-06/07/08/26)."""
+
+    booking_id: str
+    inventory_id: str
+    medicine_code: str
+    location_id: str
+    requested_quantity: int
+    allocated_quantity: int
+    reservation_key: str
+    reserved_at: datetime
+    expires_at: datetime | None = None
+    batch_id: str | None = None
+    batch_expiry_date: date | None = None
+    released_at: datetime | None = None
+    release_reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if not 0 < self.allocated_quantity <= self.requested_quantity:
+            raise ValueError("allocated quantity must be between 1 and the requested quantity")
+        _aware(self.reserved_at)
+        for value in (self.expires_at, self.released_at):
+            if value is not None:
+                _aware(value)
+
+    @property
+    def remaining_quantity(self) -> int:
+        """Quantity still unfilled. It is never also waitlisted (REQ-AW-27)."""
+        return self.requested_quantity - self.allocated_quantity
+
+    @property
+    def active(self) -> bool:
+        return self.released_at is None
+
+
+@dataclass(frozen=True, slots=True)
+class AllocationOutcome:
+    booking_id: str
+    booking_state: BookingStatus
+    allocation: Allocation | None = None
+    waitlist_entry: WaitlistEntry | None = None
+    reason_codes: tuple[str, ...] = ()
+
+
 class BookingService:
     """Prototype booking workflow. Persist its state in a real deployment."""
 
@@ -96,6 +150,7 @@ class BookingService:
                  policy: BookingPolicy | None = None) -> None:
         self.waitlist = waitlist
         self.policy = policy if policy is not None else BookingPolicy()
+        self.allocations: dict[str, Allocation] = {}
         self.rejection_reasons: dict[str, tuple[str, ...]] = {}
         self.hold_reasons: dict[str, tuple[str, ...]] = {}
         self.flags: dict[str, tuple[str, ...]] = {}
@@ -118,6 +173,8 @@ class BookingService:
     @property
     def audit_events(self) -> list[AuditEvent]:
         return self.waitlist.audit_events
+
+    # ------------------------------------------------------------------ MBA-12
 
     def submit(self, principal: Principal, *, prescription_id: str,
                medication_request_id: str, quantity: int | None = None,
@@ -223,6 +280,141 @@ class BookingService:
             self.bookings[booking_id] = updated
             return BookingOutcome(updated, ())
 
+    # ------------------------------------------------------------------ MBA-17
+
+    def allocate(self, principal: Principal, booking_id: str, location_id: str, *,
+                 at: datetime | None = None) -> AllocationOutcome:
+        """Reserve stock for an eligible booking, or waitlist it (SRS 5.3.2 A, B, D)."""
+        when = at if at is not None else utc_now()
+        _aware(when)
+        principal.require(ALLOCATION_RUN, at=when)
+        with self._lock:
+            booking = self.bookings[booking_id]
+            if booking.booking_state is not BookingStatus.ELIGIBLE:
+                raise ValueError("only an eligible booking can be allocated")
+            prescription = self.prescriptions[booking.prescription_id]
+            request = self.medication_requests[booking.medication_request_id]
+            if not request.medicine_code:
+                raise ValueError("a medicine code is required for allocation")
+            key = f"booking:{booking_id}"
+            for _ in range(2):
+                # Re-read inventory on every attempt (REQ-AW-01, REQ-AW-32).
+                inventory = self.waitlist.inventory.read(request.medicine_code, location_id)
+                decision = check_allocation_safety(
+                    booking, prescription, request, inventory, at=when,
+                    policy=self.waitlist.safety_policy,
+                    review=self.waitlist.reviews.get(booking_id),
+                )
+                quantity = booking.requested_quantity
+                if not decision.allowed:
+                    if set(decision.reason_codes) != {"INSUFFICIENT_ALLOCATABLE_STOCK"}:
+                        self._audit(principal, "ALLOCATION_BLOCKED", booking_id, when,
+                                    reason=",".join(decision.reason_codes))
+                        return AllocationOutcome(booking_id, booking.booking_state,
+                                                 reason_codes=decision.reason_codes)
+                    available = decision.allocatable_quantity
+                    if not (self.policy.partial_allocation and available > 0):
+                        return self._waitlist(principal, booking_id, request.medicine_code,
+                                              location_id, when)
+                    quantity = available
+                    partial = check_allocation_safety(
+                        booking, prescription, request, inventory, at=when,
+                        quantity_to_allocate=quantity,
+                        policy=self.waitlist.safety_policy,
+                        review=self.waitlist.reviews.get(booking_id),
+                    )
+                    if not partial.allowed:
+                        return self._waitlist(principal, booking_id, request.medicine_code,
+                                              location_id, when)
+                try:
+                    reserved = self.waitlist.inventory.reserve(
+                        inventory.inventory_id, booking_id, quantity, key, at=when)
+                    failure = "RESERVATION_CONFLICT"
+                except Exception as exc:  # adapter failure must not corrupt state
+                    reserved = False
+                    failure = type(exc).__name__
+                if reserved:
+                    return self._record_reservation(principal, booking, inventory,
+                                                     quantity, key, location_id, when)
+                self._audit(principal, "ALLOCATION_FAILED", booking_id, when, reason=failure)
+            return AllocationOutcome(booking_id, booking.booking_state,
+                                     reason_codes=("RESERVATION_CONFLICT",))
+
+    def cancel(self, principal: Principal, booking_id: str, *,
+               at: datetime | None = None) -> Booking:
+        """Cancel a booking, release any stock, and re-offer it (SRS 5.3.2 F)."""
+        when = at if at is not None else utc_now()
+        _aware(when)
+        with self._lock:
+            booking = self.bookings.get(booking_id)
+            if booking is None:
+                principal.require(BOOKING_CANCEL_ANY, at=when)
+                raise ValueError("booking not found")
+            authorize_patient_record(
+                principal, booking.patient_id, own_permission=BOOKING_CANCEL_OWN,
+                any_permission=BOOKING_CANCEL_ANY, at=when,
+            )
+            if when < booking.updated_at:
+                raise ValueError("cancellation cannot precede the last booking update")
+            allocation = self.allocations.get(booking_id)
+            if allocation is not None and allocation.active and booking.booking_state in _STOCK_HOLDING:
+                self._release(allocation, "CANCELLED", when)
+                updated = transition_booking(booking, BookingStatus.CANCELLED, at=when)
+                self.bookings[booking_id] = updated
+                self._audit(principal, "BOOKING_CANCELLED", booking_id, when,
+                            previous=booking.booking_state.value,
+                            current=BookingStatus.CANCELLED.value)
+                self._notify(booking_id, "CANCELLED", when)
+                self.waitlist.reevaluate(allocation.medicine_code, allocation.location_id, at=when)
+                return updated
+            if booking.booking_state in {BookingStatus.WAITLISTED, BookingStatus.RESERVED}:
+                # Waitlist-managed booking: the waitlist releases and re-offers stock.
+                self.waitlist.cancel_booking(booking_id, at=when)
+                self._audit(principal, "BOOKING_CANCELLED", booking_id, when,
+                            previous=booking.booking_state.value,
+                            current=BookingStatus.CANCELLED.value)
+                return self.bookings[booking_id]
+            raise ValueError("booking cannot be cancelled in its current state")
+
+    def expire_reservations(self, principal: Principal, *,
+                            at: datetime | None = None) -> tuple[str, ...]:
+        """Release expired direct and waitlist reservations (SRS 5.3.2 E)."""
+        when = at if at is not None else utc_now()
+        _aware(when)
+        principal.require(RESERVATION_EXPIRE, at=when)
+        with self._lock:
+            expired: list[str] = []
+            affected: set[tuple[str, str]] = set()
+            for booking_id, allocation in sorted(self.allocations.items()):
+                booking = self.bookings[booking_id]
+                if (not allocation.active or allocation.expires_at is None
+                        or allocation.expires_at > when
+                        or booking.booking_state is not BookingStatus.RESERVED):
+                    continue
+                self._release(allocation, "RESERVATION_EXPIRED", when)
+                self.bookings[booking_id] = transition_booking(
+                    booking, BookingStatus.EXPIRED, at=max(when, booking.updated_at))
+                self._audit(principal, "RESERVATION_EXPIRED", booking_id, when,
+                            previous=BookingStatus.RESERVED.value,
+                            current=BookingStatus.EXPIRED.value)
+                self._notify(booking_id, "EXPIRED", when)
+                expired.append(booking_id)
+                affected.add((allocation.medicine_code, allocation.location_id))
+            for medicine_code, location_id in sorted(affected):
+                self.waitlist.reevaluate(medicine_code, location_id, at=when)
+            expired.extend(self.waitlist.expire_reservations(at=when))
+            return tuple(expired)
+
+    def reservation_expiry(self, booking_id: str) -> datetime | None:
+        """Expiry of the booking's active reservation, direct or via the waitlist."""
+        allocation = self.allocations.get(booking_id)
+        if allocation is not None and allocation.active:
+            return allocation.expires_at
+        for entry in self.waitlist.entries.values():
+            if entry.booking_id == booking_id and entry.state is WaitlistState.PROMOTED:
+                return entry.reservation_expires_at
+        return None
+
     # --------------------------------------------------------------- helpers
 
     def _find_duplicate(self, booking: Booking, request: MedicationRequest) -> str | None:
@@ -283,6 +475,65 @@ class BookingService:
         ))
         return BookingOutcome(None, (reason,))
 
+    def _waitlist(self, principal: Principal, booking_id: str, medicine_code: str,
+                  location_id: str, when: datetime) -> AllocationOutcome:
+        self._audit(principal, "ALLOCATION_FAILED", booking_id, when,
+                    reason="INSUFFICIENT_ALLOCATABLE_STOCK")
+        entry = self.waitlist.add_unfilled(booking_id, medicine_code, location_id, at=when)
+        return AllocationOutcome(booking_id, BookingStatus.WAITLISTED, waitlist_entry=entry,
+                                 reason_codes=("INSUFFICIENT_ALLOCATABLE_STOCK",))
+
+    def _record_reservation(self, principal: Principal, booking: Booking, inventory,
+                            quantity: int, key: str, location_id: str,
+                            when: datetime) -> AllocationOutcome:
+        duration = self.policy.reservation_duration
+        allocation = Allocation(
+            booking.booking_id, inventory.inventory_id, inventory.medicine_code,
+            location_id, booking.requested_quantity, quantity, key, when,
+            expires_at=when + duration if duration is not None else None,
+            batch_id=inventory.batch_id, batch_expiry_date=inventory.expiry_date,
+        )
+        self.allocations[booking.booking_id] = allocation
+        updated = transition_booking(booking, BookingStatus.RESERVED, at=when)
+        self.bookings[booking.booking_id] = updated
+        self._audit(principal, "STOCK_RESERVED", booking.booking_id, when,
+                    previous=BookingStatus.ELIGIBLE.value,
+                    current=BookingStatus.RESERVED.value,
+                    reason=f"inventory={inventory.inventory_id};quantity={quantity}")
+        reasons: tuple[str, ...] = ()
+        if allocation.remaining_quantity:
+            reasons = ("PARTIAL_ALLOCATION",)
+            self._audit(principal, "PARTIAL_ALLOCATION", booking.booking_id, when,
+                        reason=(f"allocated={quantity};"
+                                f"remaining={allocation.remaining_quantity}"))
+        # Notification runs after the reservation and cannot undo it (REQ-AW-33).
+        self._notify(booking.booking_id, "RESERVED", when)
+        return AllocationOutcome(booking.booking_id, BookingStatus.RESERVED,
+                                 allocation=allocation, reason_codes=reasons)
+
+    def _release(self, allocation: Allocation, reason: str, when: datetime) -> None:
+        if not self.waitlist.inventory.release(allocation.reservation_key, at=when):
+            raise ValueError("booking has no active reservation to release")
+        self.allocations[allocation.booking_id] = replace(
+            allocation, released_at=when, release_reason=reason)
+        self.audit_events.append(AuditEvent(
+            new_record_id(), "booking-service", ActorRole.SYSTEM, "STOCK_RELEASED",
+            "Booking", allocation.booking_id, timestamp=when,
+            reason=f"{reason};quantity={allocation.allocated_quantity}",
+        ))
+
+    def _notify(self, booking_id: str, event_type: str, when: datetime) -> None:
+        if self.waitlist.notify is None:
+            return
+        try:
+            self.waitlist.notify(booking_id, event_type)
+        except Exception as exc:
+            self.audit_events.append(AuditEvent(
+                new_record_id(), "booking-service", ActorRole.SYSTEM,
+                "NOTIFICATION_FAILED", "Booking", booking_id, timestamp=when,
+                reason=type(exc).__name__,
+            ))
+
     def _audit(self, principal: Principal, event_type: str, booking_id: str,
                when: datetime, *, previous: str | None = None,
                current: str | None = None, reason: str | None = None) -> None:
@@ -304,6 +555,7 @@ def _same_medicine(left: MedicationRequest, right: MedicationRequest) -> bool:
 
 
 __all__ = [
-    "ACTIVE_BOOKING_STATES", "BookingOutcome", "BookingPolicy", "BookingService",
-    "DuplicateAction", "DuplicateMatch",
+    "ACTIVE_BOOKING_STATES", "Allocation", "AllocationOutcome",
+    "BookingOutcome", "BookingPolicy", "BookingService", "DuplicateAction",
+    "DuplicateMatch",
 ]

@@ -57,7 +57,8 @@ def build(*, stock=10, policy=None, notify=None, prescriptions=None, requests=No
         inventory=gateway, policy=priority, notify=notify,
         reservation_duration=timedelta(minutes=30),
     )
-    rules = policy if policy is not None else BookingPolicy(default_urgency="ROUTINE")
+    rules = policy if policy is not None else BookingPolicy(
+        reservation_duration=timedelta(minutes=30), default_urgency="ROUTINE")
     return BookingService(waitlist, policy=rules), gateway
 
 
