@@ -15,3 +15,18 @@ prototype. An application deployment must persist waitlist state, event IDs,
 reservation keys, and audit events, and implement the `InventoryGateway`
 contract with an atomic inventory transaction. The notification callback runs
 after reservation and cannot roll it back.
+
+## Safety boundaries
+
+`SafetyPolicy` configures restricted and excluded medicine codes or categories. Restricted
+requests need a matching `ManualReview` from a server-verified pharmacist
+principal before allocation; invalid prescriptions and unusable stock remain
+blocked. A priority override requires the `allocation:override` permission and
+a reason, produces an audit event, and cannot bypass allocation safety checks.
+
+The patient status helper accepts an emergency indicator supplied by the host
+application and requires versioned, product-owner-approved emergency guidance.
+It does not interpret patient text, diagnose, prescribe, or suggest a substitute
+medicine. The host application must authenticate principals and load approved
+guidance from its trusted configuration; this module does not provide login or
+clinical review services.

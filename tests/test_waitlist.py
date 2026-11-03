@@ -9,7 +9,7 @@ import unittest
 from medicine_booking import (
     ActorRole, Booking, BookingStatus, ContinuityStatus, InMemoryInventoryGateway,
     Inventory, InventoryState, MedicationRequest, MedicationRequestStatus,
-    Prescription, PrescriptionSource, PrescriptionStatus, PriorityContext,
+    PharmacistPrincipal, Prescription, PrescriptionSource, PrescriptionStatus, PriorityContext,
     PriorityPolicy, RestockEvent, WaitlistService, WaitlistState,
 )
 
@@ -117,6 +117,16 @@ class WaitlistTests(unittest.TestCase):
         self.assertTrue(any(event.reason == "PRESCRIPTION_NOT_VALID"
                             for event in service.audit_events))
 
+    def test_fulfilled_booking_cannot_remain_actively_waitlisted(self):
+        service, _ = fixtures(("a",))
+        entry = service.add_unfilled("a", "MED-1", "branch-1", at=NOW)
+        service.bookings["a"] = replace(
+            service.bookings["a"], booking_state=BookingStatus.FULFILLED)
+        result = service.process_restock(restock(), at=PROCESSED)
+        self.assertEqual(result.promoted_booking_ids, ())
+        self.assertEqual(result.skipped_booking_ids, ("a",))
+        self.assertEqual(service.entries[entry.waitlist_id].state, WaitlistState.FULFILLED)
+
     def test_changed_policy_is_used_at_restock_time(self):
         service, _ = fixtures()
         service.add_unfilled("a", "MED-1", "branch-1", at=NOW)
@@ -129,6 +139,32 @@ class WaitlistTests(unittest.TestCase):
         )
         result = service.process_restock(restock(), at=PROCESSED)
         self.assertEqual(result.promoted_booking_ids, ("b",))
+
+    def test_authorized_override_changes_order_but_cannot_bypass_safety(self):
+        service, _ = fixtures()
+        service.add_unfilled("a", "MED-1", "branch-1", at=NOW)
+        service.add_unfilled("b", "MED-1", "branch-1", at=NOW)
+        principal = PharmacistPrincipal(
+            "pharmacist-1", ActorRole.PHARMACIST, True,
+            frozenset({"allocation:override"}),
+        )
+        with self.assertRaisesRegex(ValueError, "reason"):
+            service.set_priority_override("b", 0, principal, " ", at=NOW)
+        override = service.set_priority_override(
+            "b", 0, principal, "Verified exception", at=NOW)
+        self.assertEqual(override.audit_event.event_type, "PRIORITY_OVERRIDE")
+        self.assertEqual(service.process_restock(restock(), at=PROCESSED).promoted_booking_ids,
+                         ("b",))
+
+        another, _ = fixtures()
+        another.add_unfilled("a", "MED-1", "branch-1", at=NOW)
+        another.add_unfilled("b", "MED-1", "branch-1", at=NOW)
+        another.set_priority_override("b", 0, principal, "Verified exception", at=NOW)
+        another.prescriptions["rx-b"] = replace(
+            another.prescriptions["rx-b"], status=PrescriptionStatus.INVALID)
+        result = another.process_restock(restock(), at=PROCESSED)
+        self.assertEqual(result.promoted_booking_ids, ("a",))
+        self.assertEqual(result.skipped_booking_ids, ("b",))
 
     def test_delayed_event_checks_expiry_at_processing_time(self):
         stock = Inventory("stock-1", "MED-1", "branch-1", 0, 0,

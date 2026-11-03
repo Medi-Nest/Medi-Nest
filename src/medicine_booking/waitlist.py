@@ -13,7 +13,10 @@ from .domain import (
     new_record_id, transition_booking, utc_now,
 )
 from .priority import PriorityPolicy, order_bookings
-from .safety import check_allocation_safety
+from .safety import (
+    ManualReview, PharmacistPrincipal, PriorityOverride, SafetyPolicy,
+    check_allocation_safety, override_priority,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,6 +148,7 @@ class WaitlistService:
         policy: PriorityPolicy,
         notify: Callable[[str, str], None] | None = None,
         reservation_duration: timedelta | None = None,
+        safety_policy: SafetyPolicy | None = None,
     ) -> None:
         if reservation_duration is not None and reservation_duration <= timedelta():
             raise ValueError("reservation duration must be positive")
@@ -158,6 +162,9 @@ class WaitlistService:
         self.policy = policy
         self.notify = notify
         self.reservation_duration = reservation_duration
+        self.safety_policy = safety_policy if safety_policy is not None else SafetyPolicy()
+        self.reviews: dict[str, ManualReview] = {}
+        self.priority_overrides: dict[str, PriorityOverride] = {}
         self._completed_restock_events: dict[str, RestockEvent] = {}
         self._lock = RLock()
 
@@ -181,6 +188,51 @@ class WaitlistService:
         except Exception as exc:
             self._audit("NOTIFICATION_FAILED", entry, at, reason=type(exc).__name__)
 
+    def approve_manual_review(self, booking_id: str, medicine_code: str,
+                              principal: PharmacistPrincipal, *,
+                              at: datetime | None = None) -> ManualReview:
+        when = at if at is not None else utc_now()
+        with self._lock:
+            booking = self.bookings[booking_id]
+            request = self.medication_requests[booking.medication_request_id]
+            if request.medicine_code != medicine_code:
+                raise ValueError("review medicine does not match the booking")
+            review = ManualReview(booking_id, medicine_code, principal, when)
+            self.reviews[booking_id] = review
+            self.audit_events.append(AuditEvent(
+                new_record_id(), principal.actor_id, principal.actor_role,
+                "MANUAL_REVIEW_COMPLETED", "Booking", booking_id, timestamp=when,
+                new_state={"medicine_code": medicine_code},
+            ))
+            return review
+
+    def set_priority_override(self, booking_id: str, new_rank: int,
+                              principal: PharmacistPrincipal, reason: str, *,
+                              at: datetime | None = None) -> PriorityOverride:
+        when = at if at is not None else utc_now()
+        with self._lock:
+            target = next((entry for entry in self.entries.values()
+                           if entry.booking_id == booking_id
+                           and entry.state is WaitlistState.ACTIVE), None)
+            if target is None:
+                raise ValueError("booking is not in the active priority order")
+            candidates = [
+                self.bookings[entry.booking_id] for entry in self.entries.values()
+                if entry.state is WaitlistState.ACTIVE
+                and (entry.medicine_code, entry.location_id) ==
+                    (target.medicine_code, target.location_id)
+                and self.bookings[entry.booking_id].booking_state is BookingStatus.WAITLISTED
+            ]
+            results = order_bookings(candidates, self.contexts, self.policy,
+                                     evaluated_at=when)
+            previous = next((item for item in results if item.booking_id == booking_id), None)
+            if previous is None:
+                raise ValueError("booking is not in the active priority order")
+            override = override_priority(previous, new_rank, principal, reason, at=when)
+            self.priority_overrides[booking_id] = override
+            self.audit_events.append(override.audit_event)
+            return override
+
     def add_unfilled(self, booking_id: str, medicine_code: str, location_id: str,
                      *, at: datetime | None = None) -> WaitlistEntry:
         """Waitlist an eligible booking only when its full quantity lacks stock."""
@@ -199,7 +251,8 @@ class WaitlistService:
                 raise ValueError("waitlist medicine does not match the request")
             decision = check_allocation_safety(
                 booking, self.prescriptions[booking.prescription_id], request,
-                inventory, at=when,
+                inventory, at=when, policy=self.safety_policy,
+                review=self.reviews.get(booking_id),
             )
             if set(decision.reason_codes) != {"INSUFFICIENT_ALLOCATABLE_STOCK"}:
                 raise ValueError(f"booking cannot be waitlisted: {decision.reason_codes}")
@@ -268,6 +321,37 @@ class WaitlistService:
                 return self._promote_available(entry.medicine_code, entry.location_id, when)
             return RestockResult((), ())
 
+    def expire_reservations(self, *, at: datetime | None = None) -> tuple[str, ...]:
+        """Release configured expired reservations and reconsider released stock."""
+        when = at if at is not None else utc_now()
+        _aware(when)
+        with self._lock:
+            expired: list[str] = []
+            affected: set[tuple[str, str]] = set()
+            for entry in tuple(self.entries.values()):
+                if (entry.state is not WaitlistState.PROMOTED
+                        or entry.reservation_expires_at is None
+                        or entry.reservation_expires_at > when):
+                    continue
+                booking = self.bookings[entry.booking_id]
+                if booking.booking_state is not BookingStatus.RESERVED:
+                    continue
+                if not self.inventory.release(f"waitlist:{entry.waitlist_id}", at=when):
+                    raise ValueError("expired booking has no active reservation")
+                self.bookings[booking.booking_id] = transition_booking(
+                    booking, BookingStatus.EXPIRED, at=max(when, booking.updated_at),
+                )
+                self.entries[entry.waitlist_id] = replace(entry, state=WaitlistState.EXPIRED)
+                expired.append(booking.booking_id)
+                affected.add((entry.medicine_code, entry.location_id))
+                self._audit("STOCK_RELEASED", entry, when, reason="RESERVATION_EXPIRED")
+                self._audit("RESERVATION_EXPIRED", entry, when,
+                            previous=WaitlistState.PROMOTED.value,
+                            current=WaitlistState.EXPIRED.value)
+            for medicine_code, location_id in sorted(affected):
+                self._promote_available(medicine_code, location_id, when)
+            return tuple(expired)
+
     def _promote_available(self, medicine_code: str, location_id: str,
                            when: datetime) -> RestockResult:
         """Re-evaluate active entries after inventory becomes available (lock held)."""
@@ -283,7 +367,16 @@ class WaitlistService:
             booking = self.bookings.get(entry.booking_id)
             if booking is None or booking.booking_state is not BookingStatus.WAITLISTED:
                 skipped.append(entry.booking_id)
+                terminal_states = {
+                    BookingStatus.FULFILLED: WaitlistState.FULFILLED,
+                    BookingStatus.CANCELLED: WaitlistState.CANCELLED,
+                    BookingStatus.EXPIRED: WaitlistState.EXPIRED,
+                }
+                state = (terminal_states.get(booking.booking_state, WaitlistState.CANCELLED)
+                         if booking is not None else WaitlistState.CANCELLED)
+                self.entries[entry.waitlist_id] = replace(entry, state=state)
                 self._audit("WAITLIST_SKIPPED", entry, when,
+                            previous=WaitlistState.ACTIVE.value, current=state.value,
                             reason="BOOKING_NOT_WAITLISTED")
                 continue
             try:
@@ -297,6 +390,21 @@ class WaitlistService:
             rankable.append(booking)
         ranked = order_bookings(rankable, self.contexts, self.policy,
                                 evaluated_at=when)
+        def effective_key(result):
+            override = self.priority_overrides.get(result.booking_id)
+            applies = (override is not None
+                       and override.previous.policy_version == result.policy_version
+                       and override.previous.rank == result.rank
+                       and override.previous.reason_codes == result.reason_codes)
+            return (
+                override.current.rank if applies else result.rank,
+                0 if applies else 1,
+                result.rank, result.booking_id,
+            )
+
+        ranked = tuple(sorted(
+            ranked, key=effective_key,
+        ))
         by_booking = {entry.booking_id: entry for entry in candidates}
         promoted: list[str] = []
         for result in ranked:
@@ -314,6 +422,7 @@ class WaitlistService:
                 current = self.inventory.read(medicine_code, location_id)
                 reasons = check_allocation_safety(
                     booking, prescription, request, current, at=when,
+                    policy=self.safety_policy, review=self.reviews.get(booking.booking_id),
                 ).reason_codes
                 if reasons == ("INSUFFICIENT_ALLOCATABLE_STOCK",) and (
                     self.inventory.reservation_for(reservation_key) ==
@@ -379,6 +488,7 @@ class WaitlistService:
                 return True
             if not check_allocation_safety(
                 booking, prescription, request, current, at=at,
+                policy=self.safety_policy, review=self.reviews.get(booking.booking_id),
             ).allowed:
                 return False
             try:
