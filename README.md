@@ -111,6 +111,18 @@ source sends but the policy did not request are dropped before allocation
 sees them, and lookups are audited without their values.
 `refresh_continuity` stores the result in a booking's priority context.
 
+## Notifications (MBA-19)
+
+`medicine_booking.notifications.NotificationService` plugs in as the
+`notify` callback (`waitlist.notify = notifications`). Booking submission,
+rejection, waitlisting, reservation (with expiry time), cancellation, and
+expiry each create one notification. The recipient always comes from the
+booking's own patient, and templates may only use `booking_ref`,
+`expires_at`, and `pharmacy`, so no medicine or health details reach a lock
+screen. Every attempt records channel, time, and status; failures retry on
+the `RetryPolicy` backoff via `retry_due()`. Sending never raises into the
+booking flow, so an outage cannot undo a booking or reservation.
+
 ### Known limits
 
 - State is in memory. A deployment must persist bookings, allocations,
@@ -118,3 +130,6 @@ sees them, and lookups are audited without their values.
   real database transaction using parameterized queries.
 - Marking a booking ready or fulfilled (consuming reserved stock) is not
   implemented yet, so fulfilment metrics stay at zero until it is.
+- Notifications are sent while the booking lock is held. The send timeout
+  (`RetryPolicy.timeout_seconds`) bounds the delay; a production deployment
+  should queue messages instead.

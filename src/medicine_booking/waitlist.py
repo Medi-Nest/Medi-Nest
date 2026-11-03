@@ -348,6 +348,7 @@ class WaitlistService:
                 self._audit("RESERVATION_EXPIRED", entry, when,
                             previous=WaitlistState.PROMOTED.value,
                             current=WaitlistState.EXPIRED.value)
+                self._notify(booking.booking_id, "EXPIRED", entry, when)
             for medicine_code, location_id in sorted(affected):
                 self._promote_available(medicine_code, location_id, when)
             return tuple(expired)
