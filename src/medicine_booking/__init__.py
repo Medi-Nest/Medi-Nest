@@ -49,6 +49,13 @@ from .booking import (
     Allocation, AllocationOutcome, BookingOutcome, BookingPolicy, BookingService,
     DuplicateAction, DuplicateMatch,
 )
+from .patient_views import (
+    PatientBookingView, patient_booking_view, patient_bookings, reason_message,
+)
+from .manager_views import (
+    AuditRow, FulfilmentMetrics, ManagerOverview, NotificationSummary,
+    WaitlistSummary, audit_history, manager_overview,
+)
 
 __all__ = [
     "ActorRole", "AuditEvent", "Booking", "BookingStatus", "ConsentStatus",
@@ -67,5 +74,8 @@ __all__ = [
     "ROLE_PERMISSIONS", "AccessDenied", "Principal", "UploadPolicy",
     "authorize_patient_record", "public_error_message", "validate_upload",
     "BookingOutcome", "BookingPolicy", "BookingService", "DuplicateAction",
-    "DuplicateMatch", "Allocation", "AllocationOutcome",
+    "DuplicateMatch", "Allocation", "AllocationOutcome", "PatientBookingView",
+    "patient_booking_view", "patient_bookings", "reason_message", "AuditRow",
+    "FulfilmentMetrics", "ManagerOverview", "NotificationSummary",
+    "WaitlistSummary", "audit_history", "manager_overview",
 ]
