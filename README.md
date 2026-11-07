@@ -123,6 +123,18 @@ screen. Every attempt records channel, time, and status; failures retry on
 the `RetryPolicy` backoff via `retry_due()`. Sending never raises into the
 booking flow, so an outage cannot undo a booking or reservation.
 
+## Traceability, end-to-end tests, and release (MBA-23)
+
+- `docs/TRACEABILITY.md` maps all 161 SRS requirements to code and tests. It
+  is generated from `docs/traceability.csv` by `python tools/traceability.py`,
+  and `tests/test_traceability.py` fails if any requirement is missing.
+- `tests/test_end_to_end.py` runs complete booking, review, priority,
+  allocation, waitlist, notification, cancellation, expiry, and audit
+  scenarios against test doubles, plus a performance smoke test.
+- `docs/RELEASE.md` has setup and deployment steps, test results, the demo
+  flow, and known limitations.
+- `python examples/demo.py` prints a short walkthrough.
+
 ### Known limits
 
 - State is in memory. A deployment must persist bookings, allocations,
