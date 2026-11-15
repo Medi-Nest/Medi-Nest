@@ -352,6 +352,14 @@ class WaitlistService:
                 self._promote_available(medicine_code, location_id, when)
             return tuple(expired)
 
+    def reevaluate(self, medicine_code: str, location_id: str, *,
+                   at: datetime | None = None) -> RestockResult:
+        """Offer stock released outside this service (cancellation or expiry)."""
+        when = at if at is not None else utc_now()
+        _aware(when)
+        with self._lock:
+            return self._promote_available(medicine_code, location_id, when)
+
     def _promote_available(self, medicine_code: str, location_id: str,
                            when: datetime) -> RestockResult:
         """Re-evaluate active entries after inventory becomes available (lock held)."""
