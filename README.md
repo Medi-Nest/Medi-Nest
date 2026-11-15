@@ -30,3 +30,118 @@ It does not interpret patient text, diagnose, prescribe, or suggest a substitute
 medicine. The host application must authenticate principals and load approved
 guidance from its trusted configuration; this module does not provide login or
 clinical review services.
+
+## Running the tests
+
+```bash
+pip install pytest
+pytest
+```
+
+`pyproject.toml` puts `src/` on the path, so no `PYTHONPATH` is needed.
+Without pytest: `PYTHONPATH=src:tests python -m unittest discover -s tests`.
+
+## Access control (MBA-9)
+
+`medicine_booking.access` holds the role-to-permission table. The host
+application authenticates the user and builds a `Principal` from its verified
+session, including the patients a patient or caregiver may act for. Services
+call `principal.require(...)` and `authorize_patient_record(...)` before
+touching data, so a known booking ID does not expose another patient's
+record. Missing and foreign records fail with the same `AccessDenied` error.
+`validate_upload` checks prescription file type, size, and leading bytes, and
+`public_error_message` turns exceptions into text that is safe to show users.
+Credentials belong in environment variables; `.env` files are git-ignored.
+
+## Booking, allocation, cancellation, and expiry (MBA-12, MBA-17)
+
+`BookingService` wraps a `WaitlistService` and shares its state, lock, and
+audit trail:
+
+1. `submit` creates a booking linked to patient, prescription, and medication
+   request. It rejects bad quantities and medicines that are not on the
+   prescription, rejects or flags duplicate active bookings (`BookingPolicy`),
+   rejects invalid or expired prescriptions with a recorded reason, and holds
+   bookings whose prescription is still under review.
+2. `recheck_eligibility` lets a pharmacist release a held booking after review.
+3. `allocate` re-reads stock and reserves it atomically. With too little stock
+   it waitlists the booking, or reserves what is available when
+   `partial_allocation` is on. The allocated and remaining quantities are
+   stored separately, and the remainder is not waitlisted under the same
+   booking, so no unit is counted twice.
+4. `cancel` and `expire_reservations` release stock and offer it to the
+   waitlist in priority order.
+
+## Patient views (MBA-14)
+
+`medicine_booking.patient_views` returns plain data for a UI or API to render.
+`patient_booking_view` and `patient_bookings` show plain-language status,
+reserved and outstanding quantity, reservation expiry, and whether the booking
+can be cancelled. They never include rank, urgency, or other patients' data.
+
+## Manager overview (MBA-20)
+
+`medicine_booking.manager_views` gives managers active bookings, waitlist
+sizes, allocation history, overrides, expiry events, fulfilment metrics, and
+notification status through `manager_overview` and `audit_history`, with
+patient account IDs masked.
+
+## External service contracts (MBA-8)
+
+`medicine_booking.contracts` defines the interface for each external system:
+prescriptions (`parse_prescription_payload`, `to_internal`,
+`import_prescription`), patient context (`ContextRequest`/`ContextResponse`),
+inventory (`InventoryGateway`), authentication (`AuthProvider`), and
+notifications (`NotificationRequest`/`DeliveryReceipt`). `call_external` adds a
+configurable timeout and retries for transient failures, and turns unexpected
+errors into `ExternalServiceError` without leaking remote error text.
+Deterministic doubles (`MockPrescriptionSource`, `MockPatientContextSource`,
+`MockAuthProvider`, `MockNotificationSender`, `FaultyInventoryGateway`) replace
+real services in tests and demos.
+
+## Patient context and consent (MBA-11)
+
+`medicine_booking.patient_context.PatientContextService` asks the context
+source only for the attributes in `PatientContextPolicy` (by default just
+`continuity_of_therapy`), and only when the patient has a current GRANTED
+consent. Consent records keep who recorded them, when, the reference, and the
+expiry. Missing consent, a missing or non-boolean value, a timeout, or an
+unavailable source all give `UNKNOWN` with a reason, never a guess. Fields the
+source sends but the policy did not request are dropped before allocation
+sees them, and lookups are audited without their values.
+`refresh_continuity` stores the result in a booking's priority context.
+
+## Notifications (MBA-19)
+
+`medicine_booking.notifications.NotificationService` plugs in as the
+`notify` callback (`waitlist.notify = notifications`). Booking submission,
+rejection, waitlisting, reservation (with expiry time), cancellation, and
+expiry each create one notification. The recipient always comes from the
+booking's own patient, and templates may only use `booking_ref`,
+`expires_at`, and `pharmacy`, so no medicine or health details reach a lock
+screen. Every attempt records channel, time, and status; failures retry on
+the `RetryPolicy` backoff via `retry_due()`. Sending never raises into the
+booking flow, so an outage cannot undo a booking or reservation.
+
+## Traceability, end-to-end tests, and release (MBA-23)
+
+- `docs/TRACEABILITY.md` maps all 161 SRS requirements to code and tests. It
+  is generated from `docs/traceability.csv` by `python tools/traceability.py`,
+  and `tests/test_traceability.py` fails if any requirement is missing.
+- `tests/test_end_to_end.py` runs complete booking, review, priority,
+  allocation, waitlist, notification, cancellation, expiry, and audit
+  scenarios against test doubles, plus a performance smoke test.
+- `docs/RELEASE.md` has setup and deployment steps, test results, the demo
+  flow, and known limitations.
+- `python examples/demo.py` prints a short walkthrough.
+
+### Known limits
+
+- State is in memory. A deployment must persist bookings, allocations,
+  waitlist entries, and audit events, and implement `InventoryGateway` with a
+  real database transaction using parameterized queries.
+- Marking a booking ready or fulfilled (consuming reserved stock) is not
+  implemented yet, so fulfilment metrics stay at zero until it is.
+- Notifications are sent while the booking lock is held. The send timeout
+  (`RetryPolicy.timeout_seconds`) bounds the delay; a production deployment
+  should queue messages instead.

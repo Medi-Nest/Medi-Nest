@@ -247,6 +247,10 @@ class BookingService:
             self.bookings[new_id] = booking
             if flags:
                 self.flags[new_id] = tuple(flags)
+            # REQ-NT-01 and REQ-NT-06: tell the patient the booking arrived or
+            # why it could not be accepted.
+            self._notify(new_id, "REJECTED" if booking.booking_state is BookingStatus.REJECTED
+                         else "SUBMITTED", when)
             return BookingOutcome(booking, result, tuple(flags))
 
     def recheck_eligibility(self, principal: Principal, booking_id: str, *,

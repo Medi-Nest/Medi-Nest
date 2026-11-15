@@ -1474,21 +1474,21 @@ Notification delivery shall be separated from the correctness of the core bookin
 
 | Sl. No. | Requirement ID | Brief Description of Requirement | Architecture Reference | Design Reference | Code File Reference | Test Case ID | System Test Case ID |
 |---:|---|---|---|---|---|---|---|
-| 21 | REQ-PB-01 | Unique booking ID | TBD | TBD | TBD | TBD | TBD |
-| 22 | REQ-PB-06 | Authorized verified urgency | TBD | TBD | TBD | TBD | TBD |
-| 23 | REQ-PB-10 | Use urgency in ranking | TBD | TBD | TBD | TBD | TBD |
-| 24 | REQ-PB-11 | Use continuity context | TBD | TBD | TBD | TBD | TBD |
-| 25 | REQ-PB-13 | Use waiting time | TBD | TBD | TBD | TBD | TBD |
-| 26 | REQ-PB-16 | Store priority reason codes | TBD | TBD | TBD | TBD | TBD |
-| 27 | REQ-AW-01 | Check allocatable stock | TBD | TBD | TBD | TBD | TBD |
-| 28 | REQ-AW-04 | Concurrency-safe reservation | TBD | TBD | TBD | TBD | TBD |
-| 29 | REQ-AW-10 | Create waitlist entry | TBD | TBD | TBD | TBD | TBD |
-| 30 | REQ-AW-15 | Re-evaluate waitlist on restock | TBD | TBD | TBD | TBD | TBD |
-| 31 | REQ-AW-20 | Release stock on cancellation | TBD | TBD | TBD | TBD | TBD |
-| 32 | REQ-AW-22 | Release expired reservation | TBD | TBD | TBD | TBD | TBD |
-| 33 | REQ-NT-01 | Booking notification | TBD | TBD | TBD | TBD | TBD |
-| 34 | REQ-NT-03 | Reservation notification | TBD | TBD | TBD | TBD | TBD |
-| 35 | REQ-NT-09 | Record delivery status | TBD | TBD | TBD | TBD | TBD |
-| 36 | NFR-SEC-03 | Server-side RBAC | TBD | TBD | TBD | TBD | TBD |
-| 37 | NFR-SF-03 | No autonomous urgency inference | TBD | TBD | TBD | TBD | TBD |
-| 38 | NFR-QA-09 | Requirement-to-test traceability | TBD | TBD | TBD | TBD | TBD |
+| 21 | REQ-PB-01 | Unique booking ID | SRS 4.1 Context; 4.2 Activity | 4.4 ER model (BOOKING) | domain.py, booking.py | test_booking_create.py::test_generated_ids_are_unique | test_end_to_end.py |
+| 22 | REQ-PB-06 | Authorized verified urgency | SRS 4.1 Context; 4.2 Activity | Priority context (Appendix B) | priority.py | test_priority_policy.py::test_only_authorized_pharmacy_actor_or_configured_system_source | test_end_to_end.py |
+| 23 | REQ-PB-10 | Use urgency in ranking | SRS 4.1 Context; 4.2 Activity | Priority policy (priority.py) | priority.py | test_priority_policy.py::test_urgency_continuity_waiting_and_booking_id_break_ties | test_end_to_end.py |
+| 24 | REQ-PB-11 | Use continuity context | SRS 4.1 Context; 4.2 Activity | Priority policy; patient context | priority.py, patient_context.py | test_priority_policy.py::test_urgency_continuity_waiting_and_booking_id_break_ties; test_patient_context.py::test_continuity_feeds_priority_order | test_end_to_end.py |
+| 25 | REQ-PB-13 | Use waiting time | SRS 4.1 Context; 4.2 Activity | Priority policy | priority.py | test_priority_policy.py::test_urgency_continuity_waiting_and_booking_id_break_ties; test_medicine_booking.py::test_orders_by_policy_then_waiting_time | test_end_to_end.py |
+| 26 | REQ-PB-16 | Store priority reason codes | SRS 4.1 Context; 4.2 Activity | Priority policy | priority.py | test_priority_policy.py::test_policy_rank_change_reverses_order_and_records_reason | test_end_to_end.py |
+| 27 | REQ-AW-01 | Check allocatable stock | SRS 4.1 Context; 4.2 Activity; 4.3 Sequence | 4.2 Activity: Check allocatable stock | booking.py, waitlist.py | test_allocation.py::test_full_allocation_records_location_quantity_batch_and_expiry; test_waitlist.py::test_reservation_failure_rereads_inventory_and_retries | test_end_to_end.py |
+| 28 | REQ-AW-04 | Concurrency-safe reservation | SRS 4.1 Context; 4.2 Activity; 4.3 Sequence | 4.3 Sequence: Atomic reserve | waitlist.py, booking.py | test_allocation.py::test_concurrent_requests_cannot_both_take_the_last_stock; test_waitlist.py::test_atomic_inventory_reservation_allows_only_one_last_unit | test_end_to_end.py |
+| 29 | REQ-AW-10 | Create waitlist entry | SRS 4.1 Context; 4.2 Activity; 4.3 Sequence | 4.2 Activity: Create waitlist entry | waitlist.py, booking.py | test_waitlist.py::test_creates_linked_unique_entries_only_for_insufficient_stock; test_allocation.py::test_insufficient_stock_waitlists_full_request_when_partial_disabled | test_end_to_end.py |
+| 30 | REQ-AW-15 | Re-evaluate waitlist on restock | SRS 4.1 Context; 4.2 Activity; 4.3 Sequence | 4.3 Waitlist promotion sequence | waitlist.py | test_waitlist.py::test_restock_uses_current_policy_and_promotes_in_order | test_end_to_end.py |
+| 31 | REQ-AW-20 | Release stock on cancellation | SRS 4.1 Context; 4.2 Activity; 4.3 Sequence | 4.5 State model: RESERVED to CANCELLED | booking.py, waitlist.py | test_allocation.py::test_cancelling_direct_reservation_releases_and_promotes_waitlist; test_waitlist.py::test_cancellation_releases_stock_and_promotes_next_waiting_booking | test_end_to_end.py |
+| 32 | REQ-AW-22 | Release expired reservation | SRS 4.1 Context; 4.2 Activity; 4.3 Sequence | 4.5 State model: RESERVED to EXPIRED | booking.py, waitlist.py | test_allocation.py::test_expiry_releases_stock_and_reoffers_it; test_allocation.py::test_promoted_waitlist_reservations_also_expire | test_end_to_end.py |
+| 33 | REQ-NT-01 | Booking notification | SRS 4.1 Context; 4.3 Sequence | 4.3 Sequence: Notification | notifications.py | test_notifications.py::test_every_lifecycle_change_creates_one_notification | test_end_to_end.py |
+| 34 | REQ-NT-03 | Reservation notification | SRS 4.1 Context; 4.3 Sequence | 4.3 Sequence: availability notification | notifications.py | test_notifications.py::test_every_lifecycle_change_creates_one_notification; test_notifications.py::test_waitlist_promotion_after_restock_is_notified | test_end_to_end.py |
+| 35 | REQ-NT-09 | Record delivery status | SRS 4.1 Context; 4.3 Sequence | Notification interface (3.2.4) | notifications.py | test_notifications.py::test_records_channel_times_and_status; test_notifications.py::test_manager_overview_counts_delivery_status | test_end_to_end.py |
+| 36 | NFR-SEC-03 | Server-side RBAC | SRS 3.2.5 Auth interface | Role-permission table (access.py) | access.py | test_access_control.py::test_only_pharmacy_staff_can_review_confirm_urgency_or_override; test_allocation.py::test_patients_and_managers_cannot_run_allocation_or_expiry | test_end_to_end.py |
+| 37 | NFR-SF-03 | No autonomous urgency inference | SRS 4.2 Activity | Safety gates (safety.py) | safety.py, priority.py | test_safety_rules.py::test_emergency_indicator_uses_only_product_owner_guidance; test_priority_policy.py::test_only_authorized_pharmacy_actor_or_configured_system_source | test_end_to_end.py |
+| 38 | NFR-QA-09 | Requirement-to-test traceability | SRS 4.1 Context | docs/traceability.csv | docs/traceability.csv, tools/traceability.py | test_traceability.py::test_every_srs_requirement_is_traced | test_traceability.py |
