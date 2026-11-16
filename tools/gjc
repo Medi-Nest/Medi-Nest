@@ -1,8 +1,0 @@
-#!/bin/bash
-# Git Jira Commit - wrapper for git_commit_with_jira_date.py
-# Usage: gjc -m "MBA-7: Your commit message"
-#        gjc --ticket MBA-10 -m "Your commit message"
-#        gjc -m "MBA-15: Your message [2024-10-28]"  # explicit date override
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec python3 "$SCRIPT_DIR/git_commit_with_jira_date.py" "$@"

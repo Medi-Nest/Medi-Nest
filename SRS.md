@@ -1470,25 +1470,138 @@ Notification delivery shall be separated from the correctness of the core bookin
 
 ---
 
-# Appendix C: Requirement Traceability Matrix — Additional Requirements
+# Appendix C: Implementation Traceability
 
-| Sl. No. | Requirement ID | Brief Description of Requirement | Architecture Reference | Design Reference | Code File Reference | Test Case ID | System Test Case ID |
-|---:|---|---|---|---|---|---|---|
-| 21 | REQ-PB-01 | Unique booking ID | SRS 4.1 Context; 4.2 Activity | 4.4 ER model (BOOKING) | domain.py, booking.py | test_booking_create.py::test_generated_ids_are_unique | test_end_to_end.py |
-| 22 | REQ-PB-06 | Authorized verified urgency | SRS 4.1 Context; 4.2 Activity | Priority context (Appendix B) | priority.py | test_priority_policy.py::test_only_authorized_pharmacy_actor_or_configured_system_source | test_end_to_end.py |
-| 23 | REQ-PB-10 | Use urgency in ranking | SRS 4.1 Context; 4.2 Activity | Priority policy (priority.py) | priority.py | test_priority_policy.py::test_urgency_continuity_waiting_and_booking_id_break_ties | test_end_to_end.py |
-| 24 | REQ-PB-11 | Use continuity context | SRS 4.1 Context; 4.2 Activity | Priority policy; patient context | priority.py, patient_context.py | test_priority_policy.py::test_urgency_continuity_waiting_and_booking_id_break_ties; test_patient_context.py::test_continuity_feeds_priority_order | test_end_to_end.py |
-| 25 | REQ-PB-13 | Use waiting time | SRS 4.1 Context; 4.2 Activity | Priority policy | priority.py | test_priority_policy.py::test_urgency_continuity_waiting_and_booking_id_break_ties; test_medicine_booking.py::test_orders_by_policy_then_waiting_time | test_end_to_end.py |
-| 26 | REQ-PB-16 | Store priority reason codes | SRS 4.1 Context; 4.2 Activity | Priority policy | priority.py | test_priority_policy.py::test_policy_rank_change_reverses_order_and_records_reason | test_end_to_end.py |
-| 27 | REQ-AW-01 | Check allocatable stock | SRS 4.1 Context; 4.2 Activity; 4.3 Sequence | 4.2 Activity: Check allocatable stock | booking.py, waitlist.py | test_allocation.py::test_full_allocation_records_location_quantity_batch_and_expiry; test_waitlist.py::test_reservation_failure_rereads_inventory_and_retries | test_end_to_end.py |
-| 28 | REQ-AW-04 | Concurrency-safe reservation | SRS 4.1 Context; 4.2 Activity; 4.3 Sequence | 4.3 Sequence: Atomic reserve | waitlist.py, booking.py | test_allocation.py::test_concurrent_requests_cannot_both_take_the_last_stock; test_waitlist.py::test_atomic_inventory_reservation_allows_only_one_last_unit | test_end_to_end.py |
-| 29 | REQ-AW-10 | Create waitlist entry | SRS 4.1 Context; 4.2 Activity; 4.3 Sequence | 4.2 Activity: Create waitlist entry | waitlist.py, booking.py | test_waitlist.py::test_creates_linked_unique_entries_only_for_insufficient_stock; test_allocation.py::test_insufficient_stock_waitlists_full_request_when_partial_disabled | test_end_to_end.py |
-| 30 | REQ-AW-15 | Re-evaluate waitlist on restock | SRS 4.1 Context; 4.2 Activity; 4.3 Sequence | 4.3 Waitlist promotion sequence | waitlist.py | test_waitlist.py::test_restock_uses_current_policy_and_promotes_in_order | test_end_to_end.py |
-| 31 | REQ-AW-20 | Release stock on cancellation | SRS 4.1 Context; 4.2 Activity; 4.3 Sequence | 4.5 State model: RESERVED to CANCELLED | booking.py, waitlist.py | test_allocation.py::test_cancelling_direct_reservation_releases_and_promotes_waitlist; test_waitlist.py::test_cancellation_releases_stock_and_promotes_next_waiting_booking | test_end_to_end.py |
-| 32 | REQ-AW-22 | Release expired reservation | SRS 4.1 Context; 4.2 Activity; 4.3 Sequence | 4.5 State model: RESERVED to EXPIRED | booking.py, waitlist.py | test_allocation.py::test_expiry_releases_stock_and_reoffers_it; test_allocation.py::test_promoted_waitlist_reservations_also_expire | test_end_to_end.py |
-| 33 | REQ-NT-01 | Booking notification | SRS 4.1 Context; 4.3 Sequence | 4.3 Sequence: Notification | notifications.py | test_notifications.py::test_every_lifecycle_change_creates_one_notification | test_end_to_end.py |
-| 34 | REQ-NT-03 | Reservation notification | SRS 4.1 Context; 4.3 Sequence | 4.3 Sequence: availability notification | notifications.py | test_notifications.py::test_every_lifecycle_change_creates_one_notification; test_notifications.py::test_waitlist_promotion_after_restock_is_notified | test_end_to_end.py |
-| 35 | REQ-NT-09 | Record delivery status | SRS 4.1 Context; 4.3 Sequence | Notification interface (3.2.4) | notifications.py | test_notifications.py::test_records_channel_times_and_status; test_notifications.py::test_manager_overview_counts_delivery_status | test_end_to_end.py |
-| 36 | NFR-SEC-03 | Server-side RBAC | SRS 3.2.5 Auth interface | Role-permission table (access.py) | access.py | test_access_control.py::test_only_pharmacy_staff_can_review_confirm_urgency_or_override; test_allocation.py::test_patients_and_managers_cannot_run_allocation_or_expiry | test_end_to_end.py |
-| 37 | NFR-SF-03 | No autonomous urgency inference | SRS 4.2 Activity | Safety gates (safety.py) | safety.py, priority.py | test_safety_rules.py::test_emergency_indicator_uses_only_product_owner_guidance; test_priority_policy.py::test_only_authorized_pharmacy_actor_or_configured_system_source | test_end_to_end.py |
-| 38 | NFR-QA-09 | Requirement-to-test traceability | SRS 4.1 Context | docs/traceability.csv | docs/traceability.csv, tools/traceability.py | test_traceability.py::test_every_srs_requirement_is_traced | test_traceability.py |
+The original requirements in Sections 1–7 and the field layouts in Appendices A–B remain the baseline. This appendix replaces obsolete implementation references with the current local application and its executable tests. A mapped test is evidence for the behavior it asserts; it is not a claim of production certification or completed visual acceptance.
+
+## C.1 Functional requirements
+
+Run `python -m unittest discover -s tests -v`. The following references are methods in `tests/test_booking.py` unless otherwise stated.
+
+| Requirement | Implementation | Test reference | Scope |
+|---|---|---|---|
+| REQ-EP-01 | `src/medicine_booking/booking.py` | `test_prescription_intake_preserves_source_consent_links_and_validation_history` | Local integration |
+| REQ-EP-02 | `src/medicine_booking/booking.py` | `test_prescription_intake_preserves_source_consent_links_and_validation_history` | Local integration |
+| REQ-EP-03 | `src/medicine_booking/booking.py` | `test_upload_constraints_and_document_access` | Local integration |
+| REQ-EP-04 | `src/medicine_booking/booking.py` | `test_invalid_pending_and_expired_prescriptions_cannot_allocate` | Local integration |
+| REQ-EP-05 | `src/medicine_booking/booking.py` | `test_invalid_pending_and_expired_prescriptions_cannot_allocate` | Local integration |
+| REQ-EP-06 | `src/medicine_booking/booking.py` | `test_prescription_intake_preserves_source_consent_links_and_validation_history` | Local integration |
+| REQ-EP-07 | `src/medicine_booking/booking.py` | `test_prescription_intake_preserves_source_consent_links_and_validation_history` | Local integration |
+| REQ-EP-08 | `src/medicine_booking/booking.py` | `test_structured_schema_quantity_and_duplicate_source_are_validated` | Local integration |
+| REQ-EP-09 | `src/medicine_booking/booking.py` | `test_prescription_intake_preserves_source_consent_links_and_validation_history` | Local integration |
+| REQ-EP-10 | `src/medicine_booking/booking.py` | `test_structured_schema_quantity_and_duplicate_source_are_validated` | Local integration |
+| REQ-EP-11 | `src/medicine_booking/booking.py` | `test_structured_schema_quantity_and_duplicate_source_are_validated` | Local integration |
+| REQ-EP-12 | `src/medicine_booking/booking.py` | `test_priority_ties_use_continuity_waiting_time_and_identifier_only` | Local pharmacist context; external health-record integration pending |
+| REQ-EP-13 | `src/medicine_booking/booking.py` | `test_priority_ties_use_continuity_waiting_time_and_identifier_only` | Local integration |
+| REQ-EP-14 | `src/medicine_booking/booking.py` | `test_prescription_intake_preserves_source_consent_links_and_validation_history` | Local pharmacist context; external health-record integration pending |
+| REQ-EP-15 | `src/medicine_booking/booking.py` | `test_priority_ties_use_continuity_waiting_time_and_identifier_only` | Local pharmacist context; external health-record integration pending |
+| REQ-EP-16 | `src/medicine_booking/booking.py` | `test_invalid_pending_and_expired_prescriptions_cannot_allocate` | Local integration |
+| REQ-EP-17 | `src/medicine_booking/booking.py` | `test_prescription_intake_preserves_source_consent_links_and_validation_history` | Local integration |
+| REQ-EP-18 | `src/medicine_booking/booking.py` | `test_only_pharmacists_can_review_or_confirm_urgency` | Local integration |
+| REQ-EP-19 | `src/medicine_booking/booking.py` | `test_prescription_intake_preserves_source_consent_links_and_validation_history` | Local integration |
+| REQ-EP-20 | `src/medicine_booking/booking.py` | `test_prescription_intake_preserves_source_consent_links_and_validation_history` | Local integration |
+| REQ-PB-01 | `src/medicine_booking/booking.py` | `test_full_allocation_records_reservation_batch_location_and_expiry` | Local integration |
+| REQ-PB-02 | `src/medicine_booking/booking.py` | `test_full_allocation_records_reservation_batch_location_and_expiry` | Local integration |
+| REQ-PB-03 | `src/medicine_booking/booking.py` | `test_invalid_pending_and_expired_prescriptions_cannot_allocate` | Local integration |
+| REQ-PB-04 | `src/medicine_booking/booking.py` | `test_full_allocation_records_reservation_batch_location_and_expiry` | Local integration |
+| REQ-PB-05 | `src/medicine_booking/booking.py` | `test_fulfilment_consumes_inventory_and_prevents_overprescription` | Local integration |
+| REQ-PB-06 | `src/medicine_booking/booking.py` | `test_only_pharmacists_can_review_or_confirm_urgency` | Local integration |
+| REQ-PB-07 | `src/medicine_booking/booking.py` | `test_only_pharmacists_can_review_or_confirm_urgency` | Local integration |
+| REQ-PB-08 | `src/medicine_booking/booking.py` | `test_only_pharmacists_can_review_or_confirm_urgency` | Local integration |
+| REQ-PB-09 | `src/medicine_booking/priority.py; booking.py` | `test_priority_ties_use_continuity_waiting_time_and_identifier_only` | Local integration |
+| REQ-PB-10 | `src/medicine_booking/priority.py; booking.py` | `test_waitlist_uses_verified_urgency_continuity_and_current_policy` | Local integration |
+| REQ-PB-11 | `src/medicine_booking/priority.py; booking.py` | `test_priority_ties_use_continuity_waiting_time_and_identifier_only` | Local integration |
+| REQ-PB-12 | `src/medicine_booking/priority.py; booking.py` | `test_priority_ties_use_continuity_waiting_time_and_identifier_only` | Local integration |
+| REQ-PB-13 | `src/medicine_booking/priority.py; booking.py` | `test_priority_ties_use_continuity_waiting_time_and_identifier_only` | Local integration |
+| REQ-PB-14 | `src/medicine_booking/priority.py; booking.py` | `test_priority_ties_use_continuity_waiting_time_and_identifier_only` | Local integration |
+| REQ-PB-15 | `src/medicine_booking/priority.py; booking.py` | `test_full_allocation_records_reservation_batch_location_and_expiry` | Local integration |
+| REQ-PB-16 | `src/medicine_booking/priority.py; booking.py` | `test_full_allocation_records_reservation_batch_location_and_expiry` | Local integration |
+| REQ-PB-17 | `src/medicine_booking/booking.py` | `test_override_requires_pharmacist_reason_and_preserves_audit` | API tested; desktop review completed; full accessibility acceptance pending |
+| REQ-PB-18 | `src/medicine_booking/priority.py; booking.py` | `test_review_change_re_evaluates_existing_waitlist` | Local integration |
+| REQ-PB-19 | `src/medicine_booking/priority.py; booking.py` | `test_review_change_re_evaluates_existing_waitlist` | Local integration |
+| REQ-PB-20 | `src/medicine_booking/priority.py; booking.py` | `test_review_change_re_evaluates_existing_waitlist` | Local integration |
+| REQ-PB-21 | `src/medicine_booking/priority.py; booking.py` | `test_priority_ties_use_continuity_waiting_time_and_identifier_only` | Local integration |
+| REQ-PB-22 | `src/medicine_booking/priority.py; booking.py` | `test_priority_ties_use_continuity_waiting_time_and_identifier_only` | Local integration |
+| REQ-PB-23 | `src/medicine_booking/booking.py` | `test_fulfilment_consumes_inventory_and_prevents_overprescription` | Local integration |
+| REQ-PB-24 | `src/medicine_booking/booking.py` | `test_duplicate_and_excess_quantity_are_rejected` | Local integration |
+| REQ-PB-25 | `src/medicine_booking/booking.py` | `test_duplicate_and_excess_quantity_are_rejected` | Local integration |
+| REQ-PB-26 | `src/medicine_booking/booking.py` | `test_duplicate_and_excess_quantity_are_rejected` | Local integration |
+| REQ-PB-27 | `src/medicine_booking/booking.py` | `test_full_allocation_records_reservation_batch_location_and_expiry` | Local integration |
+| REQ-PB-28 | `src/medicine_booking/booking.py` | `test_patient_ownership_and_role_boundaries` | Local integration |
+| REQ-PB-29 | `src/medicine_booking/booking.py` | `test_patient_ownership_and_role_boundaries` | API tested; desktop review completed; full accessibility acceptance pending |
+| REQ-PB-30 | `src/medicine_booking/booking.py` | `test_invalid_pending_and_expired_prescriptions_cannot_allocate` | Local integration |
+| REQ-AW-01 | `src/medicine_booking/booking.py` | `test_full_allocation_records_reservation_batch_location_and_expiry` | Local integration |
+| REQ-AW-02 | `src/medicine_booking/booking.py` | `test_full_allocation_records_reservation_batch_location_and_expiry` | Local integration |
+| REQ-AW-03 | `src/medicine_booking/booking.py` | `test_recalled_quarantined_expired_and_blocked_batches_are_excluded` | Local integration |
+| REQ-AW-04 | `src/medicine_booking/booking.py` | `test_concurrent_last_unit_is_reserved_once` | Local integration |
+| REQ-AW-05 | `src/medicine_booking/booking.py` | `test_concurrent_last_unit_is_reserved_once` | Local integration |
+| REQ-AW-06 | `src/medicine_booking/booking.py` | `test_full_allocation_records_reservation_batch_location_and_expiry` | Local integration |
+| REQ-AW-07 | `src/medicine_booking/booking.py` | `test_full_allocation_records_reservation_batch_location_and_expiry` | Local integration |
+| REQ-AW-08 | `src/medicine_booking/booking.py` | `test_full_allocation_records_reservation_batch_location_and_expiry` | Local integration |
+| REQ-AW-09 | `src/medicine_booking/booking.py` | `test_full_allocation_records_reservation_batch_location_and_expiry` | Local integration |
+| REQ-AW-10 | `src/medicine_booking/booking.py` | `test_waitlist_uses_verified_urgency_continuity_and_current_policy` | Local integration |
+| REQ-AW-11 | `src/medicine_booking/booking.py` | `test_waitlist_uses_verified_urgency_continuity_and_current_policy` | Local integration |
+| REQ-AW-12 | `src/medicine_booking/booking.py` | `test_waitlist_uses_verified_urgency_continuity_and_current_policy` | Local integration |
+| REQ-AW-13 | `src/medicine_booking/booking.py` | `test_waitlist_uses_verified_urgency_continuity_and_current_policy` | Local integration |
+| REQ-AW-14 | `src/medicine_booking/booking.py` | `test_invalidated_prescription_cannot_be_promoted_or_keep_reservation` | Local integration |
+| REQ-AW-15 | `src/medicine_booking/booking.py` | `test_waitlist_uses_verified_urgency_continuity_and_current_policy` | Local integration |
+| REQ-AW-16 | `src/medicine_booking/booking.py` | `test_waitlist_uses_verified_urgency_continuity_and_current_policy` | Local integration |
+| REQ-AW-17 | `src/medicine_booking/booking.py` | `test_invalidated_prescription_cannot_be_promoted_or_keep_reservation` | Local integration |
+| REQ-AW-18 | `src/medicine_booking/booking.py` | `test_waitlist_uses_verified_urgency_continuity_and_current_policy` | Local integration |
+| REQ-AW-19 | `src/medicine_booking/booking.py` | `test_invalidated_prescription_cannot_be_promoted_or_keep_reservation` | Local integration |
+| REQ-AW-20 | `src/medicine_booking/booking.py` | `test_cancellation_releases_stock_and_promotes_next_request` | Local integration |
+| REQ-AW-21 | `src/medicine_booking/booking.py` | `test_partial_allocation_tracks_remaining_quantity_until_full_reservation` | Local integration |
+| REQ-AW-22 | `src/medicine_booking/booking.py` | `test_expiry_releases_reserved_stock_and_promotes_waitlist` | Local integration |
+| REQ-AW-23 | `src/medicine_booking/booking.py` | `test_cancellation_releases_stock_and_promotes_next_request` | Local integration |
+| REQ-AW-24 | `src/medicine_booking/booking.py` | `test_partial_allocation_tracks_remaining_quantity_until_full_reservation` | Local integration |
+| REQ-AW-25 | `src/medicine_booking/booking.py` | `test_partial_disabled_never_reserves_insufficient_stock` | Local integration |
+| REQ-AW-26 | `src/medicine_booking/booking.py` | `test_partial_allocation_tracks_remaining_quantity_until_full_reservation` | Local integration |
+| REQ-AW-27 | `src/medicine_booking/booking.py` | `test_fulfilment_consumes_inventory_and_prevents_overprescription` | Local integration |
+| REQ-AW-28 | `src/medicine_booking/booking.py` | `test_waitlist_uses_verified_urgency_continuity_and_current_policy` | Local integration |
+| REQ-AW-29 | `src/medicine_booking/booking.py` | `test_waitlist_uses_verified_urgency_continuity_and_current_policy` | Local integration |
+| REQ-AW-30 | `src/medicine_booking/booking.py` | `test_restock_replay_is_idempotent_and_conflicting_replay_is_rejected` | Local integration |
+| REQ-AW-31 | `src/medicine_booking/booking.py` | `test_restock_replay_is_idempotent_and_conflicting_replay_is_rejected` | Local integration |
+| REQ-AW-32 | `src/medicine_booking/booking.py` | `test_failed_transaction_leaves_no_orphan_reservation` | SQLite transaction rollback and retry; no remote inventory provider |
+| REQ-AW-33 | `src/medicine_booking/booking.py` | `test_notification_failure_does_not_undo_reservation_and_can_retry` | Local integration |
+| REQ-AW-34 | `src/medicine_booking/booking.py` | `test_override_requires_pharmacist_reason_and_preserves_audit` | Local integration |
+| REQ-AW-35 | `src/medicine_booking/booking.py` | `test_patient_ownership_and_role_boundaries` | Local integration |
+| REQ-NT-01 | `src/medicine_booking/notifications.py; booking.py` | `test_lifecycle_notifications_are_scoped_and_timestamped` | Local integration |
+| REQ-NT-02 | `src/medicine_booking/notifications.py; booking.py` | `test_lifecycle_notifications_are_scoped_and_timestamped` | Local integration |
+| REQ-NT-03 | `src/medicine_booking/notifications.py; booking.py` | `test_lifecycle_notifications_are_scoped_and_timestamped` | Local integration |
+| REQ-NT-04 | `src/medicine_booking/notifications.py; booking.py` | `test_lifecycle_notifications_are_scoped_and_timestamped` | Local integration |
+| REQ-NT-05 | `src/medicine_booking/notifications.py; booking.py` | `test_cancellation_releases_stock_and_promotes_next_request` | Local integration |
+| REQ-NT-06 | `src/medicine_booking/notifications.py; booking.py` | `test_restricted_and_excluded_medicines_require_safety_review` | Local integration |
+| REQ-NT-07 | `src/medicine_booking/notifications.py; booking.py` | `test_lifecycle_notifications_are_scoped_and_timestamped` | Local integration |
+| REQ-NT-08 | `src/medicine_booking/notifications.py; booking.py` | `test_lifecycle_notifications_are_scoped_and_timestamped` | Local integration |
+| REQ-NT-09 | `src/medicine_booking/notifications.py; booking.py` | `test_notification_failure_does_not_undo_reservation_and_can_retry` | Local integration |
+| REQ-NT-10 | `src/medicine_booking/notifications.py; booking.py` | `test_lifecycle_notifications_are_scoped_and_timestamped` | Local integration |
+| REQ-NT-11 | `src/medicine_booking/notifications.py; booking.py` | `test_notification_templates_are_configurable` | Local integration |
+| REQ-NT-12 | `src/medicine_booking/notifications.py; booking.py` | `test_lifecycle_notifications_are_scoped_and_timestamped` | Local integration |
+| REQ-NT-13 | `src/medicine_booking/notifications.py; booking.py` | `test_notification_failure_does_not_undo_reservation_and_can_retry` | Local integration |
+| REQ-NT-14 | `src/medicine_booking/notifications.py; booking.py` | `test_notification_failure_does_not_undo_reservation_and_can_retry` | Local integration |
+| REQ-NT-15 | `src/medicine_booking/notifications.py; booking.py` | `test_patient_ownership_and_role_boundaries` | Local integration |
+
+## C.2 Cross-cutting validation
+
+| Requirements | Current evidence / status |
+|---|---|
+| NFR-P-01–04 | `test_performance.py::test_response_time_targets`: 30 authenticated status reads, 20 sequential submissions, restock over the resulting prototype queue. Thresholds: p95 reads <1s, p95 submissions <2s, restock <3s. `test_concurrent_last_unit_is_reserved_once` verifies contention. This is a small local dataset, not a production capacity test. |
+| NFR-P-05–06; NFR-QA-04–05 | Notification-provider exceptions are isolated by the outbox (`test_notification_failure_does_not_undo_reservation_and_can_retry`). The default provider is the local inbox. A production external provider must enforce bounded network timeouts; external integrations are not configured. |
+| NFR-SF-01–10; BR-01–14 | Application has no diagnosis, prescribing, symptom inference, commercial ranking, or substitution path. Pharmacist-only verification, restricted/excluded category gates, invalid/expired prescription checks, unsafe-batch exclusion, scoped overrides, stock release, and audit behavior are exercised by `test_booking.py`. Emergency guidance is shown only when configured with its owner-supplied version; clinical emergency triage is outside scope. |
+| NFR-SEC-02–06, 08 | Authentication, role checks, ownership, salted PBKDF2 passwords, parameterized SQLite queries, payload validation, private documents, and expiring sessions are covered by `test_booking.py` and `test_server.py`. |
+| NFR-SEC-09–15 | Server-side role/object checks, expiring sessions, source-free credentials, CSRF protection, host/origin validation, neutral logging, and safe error responses are implemented. Staff policy/override actions are audited. See the HTTP tests. |
+| NFR-QA-01–03 | Transaction rollback, persistent restock idempotency, reservation consistency, and timestamped lifecycle events are covered by booking and HTTP integration tests. |
+| NFR-QA-06–08, 10–11 | Priority policy is separate from browser code; SQLite persistence and notification delivery have explicit boundaries; fixtures are synthetic and deterministic for ordering. Reservation duration, partial allocation, and notification templates are configurable. No external prescription or patient-context provider is connected. |
+| NFR-QA-09, 12–16 | Functional test references above; plain-language UI labels; staff priority factors and override markers; timestamped audit history. `test_requirements.py` checks references and completeness. Desktop patient and pharmacist screens were visually reviewed. Full mobile and accessibility acceptance remains pending. |
+| OR-01–02, 04–08, 10–17 | Purpose-limited local context, optional consent reference recording, UUID relationships, structured JSON intake, scoped notifications and audit data. This records consent metadata but does not claim an external consent-management integration. |
+
+## C.3 Deployment requirements still outstanding
+
+| Requirement | Remaining work |
+|---|---|
+| NFR-SEC-01, 07 | The loopback-only demonstration uses HTTP and ordinary SQLite storage. Production requires HTTPS termination and encryption of database, attachments, and backups through the selected platform. |
+| OR-03 | Configurable category-specific retention and approved deletion procedures are not implemented. Local data remains until the operator manages the demonstration database. |
+| OR-09; external portions of REQ-EP-10–15 and OR-10 | The internal prescription JSON contract is implemented. FHIR/ABDM mapping, authenticated health-record access, consent verification, bounded remote adapters, and operational integration contracts remain integration work. |
+| NFR-QA-12–14; UI portions of REQ-PB-17, 29 | Browser views are implemented; API behavior and JavaScript syntax are tested. Desktop patient and pharmacist layouts and review controls have been inspected in a browser. Full mobile, accessibility, and usability acceptance remains required. |
+
+This local prototype is not represented as ISO-certified, clinically validated, or production-ready. Branch and commit names follow common Git conventions; stored dates and times follow ISO 8601. Existing Git history remains intact.

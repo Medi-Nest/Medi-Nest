@@ -1,147 +1,134 @@
-# Medicine-Booking-Application
-Priority-Based Medicine Booking and Allocation Module for Pharma Apps - A module for pharmacy apps that prioritizes medicine bookings based on urgency, availability, and patient history. Include waitlist management, notifications, and integration with e-prescriptions.
+# MediNest
 
-## Waitlist workflow prototype
+A local pharmacy application for prescription review, medicine booking, stock reservation, and ordered waitlists. Requirements are maintained in the original [SRS.md](SRS.md).
 
-The `medicine_booking.waitlist` module provides `WaitlistService` for an
-eligible booking that cannot be filled. Call `add_unfilled` after the allocation
-check, then pass each inventory increase to `process_restock` with a stable
-restock event ID. The service uses the current priority policy, rereads stock
-and eligibility before each reservation, and records audit events. Cancelling a
-promoted booking releases its reservation and reconsiders the remaining entries.
+## Run locally
 
-`InMemoryInventoryGateway` provides atomic, idempotent reservations for the
-prototype. An application deployment must persist waitlist state, event IDs,
-reservation keys, and audit events, and implement the `InventoryGateway`
-contract with an atomic inventory transaction. The notification callback runs
-after reservation and cannot roll it back.
+Requires **Python 3.11 or later**. There are no third-party runtime dependencies or frontend build steps.
 
-## Safety boundaries
-
-`SafetyPolicy` configures restricted and excluded medicine codes or categories. Restricted
-requests need a matching `ManualReview` from a server-verified pharmacist
-principal before allocation; invalid prescriptions and unusable stock remain
-blocked. A priority override requires the `allocation:override` permission and
-a reason, produces an audit event, and cannot bypass allocation safety checks.
-
-The patient status helper accepts an emergency indicator supplied by the host
-application and requires versioned, product-owner-approved emergency guidance.
-It does not interpret patient text, diagnose, prescribe, or suggest a substitute
-medicine. The host application must authenticate principals and load approved
-guidance from its trusted configuration; this module does not provide login or
-clinical review services.
-
-## Running the tests
-
-```bash
-pip install pytest
-pytest
+```powershell
+cd C:\Users\Jignas\Desktop\se-proj\Medi-Nest
+python run.py --demo
 ```
 
-`pyproject.toml` puts `src/` on the path, so no `PYTHONPATH` is needed.
-Without pytest: `PYTHONPATH=src:tests python -m unittest discover -s tests`.
+Open **http://127.0.0.1:8080**. The application listens only on the local machine. The `--demo` flag initializes synthetic records only when the database has no users; subsequent starts preserve all changes.
 
-## Access control (MBA-9)
+| Account | Email | Password |
+|---|---|---|
+| Patient | patient@medinest.local | MediNest@2026 |
+| Second patient | meera@medinest.local | MediNest@2026 |
+| Pharmacist | pharmacist@medinest.local | MediNest@2026 |
+| Pharmacy manager | manager@medinest.local | MediNest@2026 |
 
-`medicine_booking.access` holds the role-to-permission table. The host
-application authenticates the user and builds a `Principal` from its verified
-session, including the patients a patient or caregiver may act for. Services
-call `principal.require(...)` and `authorize_patient_record(...)` before
-touching data, so a known booking ID does not expose another patient's
-record. Missing and foreign records fail with the same `AccessDenied` error.
-`validate_upload` checks prescription file type, size, and leading bytes, and
-`public_error_message` turns exceptions into text that is safe to show users.
-Credentials belong in environment variables; `.env` files are git-ignored.
+When sample accounts are enabled, the sign-in page offers workspace account buttons. Patient registration creates patient accounts only. Staff roles cannot be selected during registration.
 
-## Booking, allocation, cancellation, and expiry (MBA-12, MBA-17)
+To use another port or a separate demonstration dataset:
 
-`BookingService` wraps a `WaitlistService` and shares its state, lock, and
-audit trail:
+```powershell
+python run.py --demo --port 8001 --database data/demo.db
+```
 
-1. `submit` creates a booking linked to patient, prescription, and medication
-   request. It rejects bad quantities and medicines that are not on the
-   prescription, rejects or flags duplicate active bookings (`BookingPolicy`),
-   rejects invalid or expired prescriptions with a recorded reason, and holds
-   bookings whose prescription is still under review.
-2. `recheck_eligibility` lets a pharmacist release a held booking after review.
-3. `allocate` re-reads stock and reserves it atomically. With too little stock
-   it waitlists the booking, or reserves what is available when
-   `partial_allocation` is on. The allocated and remaining quantities are
-   stored separately, and the remainder is not waitlisted under the same
-   booking, so no unit is counted twice.
-4. `cancel` and `expire_reservations` release stock and offer it to the
-   waitlist in priority order.
+Stop the server with `Ctrl+C`. SQLite data, prescription attachments, and sessions are kept under `data/` and excluded from Git. A running database must not be deleted or replaced.
 
-## Patient views (MBA-14)
+## Workflows
 
-`medicine_booking.patient_views` returns plain data for a UI or API to render.
-`patient_booking_view` and `patient_bookings` show plain-language status,
-reserved and outstanding quantity, reservation expiry, and whether the booking
-can be cancelled. They never include rank, urgency, or other patients' data.
+- **Patient:** submit prescribed medicines as a structured record, optionally attach a PDF/PNG/JPEG, wait for pharmacist review, then book an accepted medication request. View reservation deadlines, cancel eligible bookings, and receive private in-app updates.
+- **Pharmacist:** review prescriptions, confirm urgency and continuity, explicitly approve restricted categories, inspect priority reasons, record restocks, block batches, override a waiting request with a reason, and mark reservations ready and fulfilled.
+- **Manager:** review bookings, inventory, waitlists, audit history, and notification status. Configure reservation duration and partial allocation. Manager accounts cannot perform clinical review or stock allocation actions.
 
-## Manager overview (MBA-20)
+Try restocking **Atorvastatin / MED-003** from the pharmacist inventory page. The synthetic higher-urgency request receives stock before the normal-urgency request. Cancelling a reservation releases its stock and re-evaluates the queue.
 
-`medicine_booking.manager_views` gives managers active bookings, waitlist
-sizes, allocation history, overrides, expiry events, fulfilment metrics, and
-notification status through `manager_overview` and `audit_history`, with
-patient account IDs masked.
+## Allocation policy
 
-## External service contracts (MBA-8)
+1. Verify current prescription eligibility and explicit restricted-medicine approval.
+2. Order eligible requests by pharmacist override, verified urgency, confirmed therapy continuity, oldest booking timestamp, and booking UUID.
+3. Reserve only allocatable stock at the same location, using batches with the earliest expiry first.
+4. Maintain an ordered waitlist for unreserved quantities. Restocks, cancellations, reservation expiry, prescription review, and stock-state changes re-evaluate eligibility and ordering.
 
-`medicine_booking.contracts` defines the interface for each external system:
-prescriptions (`parse_prescription_payload`, `to_internal`,
-`import_prescription`), patient context (`ContextRequest`/`ContextResponse`),
-inventory (`InventoryGateway`), authentication (`AuthProvider`), and
-notifications (`NotificationRequest`/`DeliveryReceipt`). `call_external` adds a
-configurable timeout and retries for transient failures, and turns unexpected
-errors into `ExternalServiceError` without leaking remote error text.
-Deterministic doubles (`MockPrescriptionSource`, `MockPatientContextSource`,
-`MockAuthProvider`, `MockNotificationSender`, `FaultyInventoryGateway`) replace
-real services in tests and demos.
+SQLite `BEGIN IMMEDIATE` transactions commit inventory, reservations, booking states, waitlist changes, audit events, and notification outbox entries together. Quantity constraints and a unique active-request index protect against overselling and duplicate bookings. Restock event identifiers persist across restarts; conflicting replays are rejected. Previously fulfilled quantity counts against the original prescription limit.
 
-## Patient context and consent (MBA-11)
+Partial allocation is disabled by default. When enabled, a partial reservation retains an active waitlist entry only for its remaining quantity. The full remaining quantity must be reserved before the booking can be marked ready for collection. Reservation expiry releases the outstanding reservation and closes that booking; it does not automatically rebook the same patient.
 
-`medicine_booking.patient_context.PatientContextService` asks the context
-source only for the attributes in `PatientContextPolicy` (by default just
-`continuity_of_therapy`), and only when the patient has a current GRANTED
-consent. Consent records keep who recorded them, when, the reference, and the
-expiry. Missing consent, a missing or non-boolean value, a timeout, or an
-unavailable source all give `UNKNOWN` with a reason, never a guess. Fields the
-source sends but the policy did not request are dropped before allocation
-sees them, and lookups are audited without their values.
-`refresh_continuity` stores the result in a booking's priority context.
+Background maintenance checks expiry and delivers in-app notifications every 10 seconds. Delivery failures are recorded separately and cannot reverse a reservation. Authorized staff can retry failed deliveries, up to five attempts. The default provider delivers to the persisted in-app inbox; SMS and email are not configured.
 
-## Notifications (MBA-19)
+`MEDINEST_NOTIFICATION_TEMPLATES` may contain a JSON object overriding status templates, for example `{"WAITLISTED":"Your request is queued. Sign in for updates."}`. Keep configured notification content free of unnecessary health information.
 
-`medicine_booking.notifications.NotificationService` plugs in as the
-`notify` callback (`waitlist.notify = notifications`). Booking submission,
-rejection, waitlisting, reservation (with expiry time), cancellation, and
-expiry each create one notification. The recipient always comes from the
-booking's own patient, and templates may only use `booking_ref`,
-`expires_at`, and `pharmacy`, so no medicine or health details reach a lock
-screen. Every attempt records channel, time, and status; failures retry on
-the `RetryPolicy` backoff via `retry_due()`. Sending never raises into the
-booking flow, so an outage cannot undo a booking or reservation.
+## Structured prescription format
 
-## Traceability, end-to-end tests, and release (MBA-23)
+The prescription form can import a JSON file with this structure. The same object is accepted by `POST /api/prescriptions` after authentication. Submitted clinical validation or urgency fields are rejected. All imported prescriptions require pharmacist review.
 
-- `docs/TRACEABILITY.md` maps all 161 SRS requirements to code and tests. It
-  is generated from `docs/traceability.csv` by `python tools/traceability.py`,
-  and `tests/test_traceability.py` fails if any requirement is missing.
-- `tests/test_end_to_end.py` runs complete booking, review, priority,
-  allocation, waitlist, notification, cancellation, expiry, and audit
-  scenarios against test doubles, plus a performance smoke test.
-- `docs/RELEASE.md` has setup and deployment steps, test results, the demo
-  flow, and known limitations.
-- `python examples/demo.py` prints a short walkthrough.
+```json
+{
+  "source_identifier": "clinic:prescription-001",
+  "authored_on": "2026-11-16",
+  "expires_on": "2026-12-16",
+  "prescriber": "PRESCRIBER-001",
+  "consent_reference": "optional-authorization-reference",
+  "medicines": [
+    { "medicine_code": "MED-002", "quantity": 30 }
+  ]
+}
+```
 
-### Known limits
+`patient_id` may be supplied by an authenticated pharmacist; patients may submit only for themselves. An optional `document` object contains `filename` and base64-encoded `content`. Supported attachments are PDF, PNG, and JPEG up to 5 MiB, checked by extension and file signature. Downloads require authenticated ownership or a staff role and are served as attachments. Structural file checks do not establish clinical authenticity.
 
-- State is in memory. A deployment must persist bookings, allocations,
-  waitlist entries, and audit events, and implement `InventoryGateway` with a
-  real database transaction using parameterized queries.
-- Marking a booking ready or fulfilled (consuming reserved stock) is not
-  implemented yet, so fulfilment metrics stay at zero until it is.
-- Notifications are sent while the booking lock is held. The send timeout
-  (`RetryPolicy.timeout_seconds`) bounds the delay; a production deployment
-  should queue messages instead.
+## API
+
+All mutations use JSON, the `X-Requested-With: MediNest` header, an authenticated session cookie, and the `X-CSRF-Token` returned at sign-in. Sign-in and patient registration do not require an existing session. Cross-origin requests and unexpected hosts are rejected.
+
+| Endpoint | Access / purpose |
+|---|---|
+| `GET /api/config` | Public application and demonstration configuration |
+| `POST /api/auth/login`, `/api/auth/register` | Sign in / create a patient account |
+| `POST /api/auth/logout` | End the current session |
+| `GET /api/dashboard` | Role-filtered application data |
+| `POST /api/prescriptions` | Patient or pharmacist intake |
+| `GET /api/prescriptions/{id}/document` | Authorized document download |
+| `POST /api/prescriptions/{id}/review` | Pharmacist validation and verified context |
+| `POST /api/bookings` | Patient or pharmacist booking |
+| `POST /api/bookings/{id}/cancel` | Owner or pharmacist cancellation |
+| `POST /api/bookings/{id}/ready`, `/fulfil` | Pharmacist collection workflow |
+| `POST /api/bookings/{id}/override` | Pharmacist rank override with reason |
+| `POST /api/inventory/restock` | Pharmacist restock with unique `event_id` |
+| `POST /api/inventory/{id}/state` | Pharmacist stock-state update with reason |
+| `POST /api/settings` | Manager reservation and partial-allocation policy |
+| `POST /api/notifications/{id}/retry` | Pharmacist or manager delivery retry |
+
+## Project layout
+
+```text
+run.py                       Local entry point
+SRS.md                       Original requirements and implementation traceability
+src/medicine_booking/
+  access.py                  Authentication, session expiry, authorization
+  domain.py                  Shared validation, IDs, timestamps
+  storage.py                 Schema and transaction boundaries
+  priority.py                Deterministic priority policy
+  booking.py                 Prescription, booking, inventory application service
+  notifications.py           Durable outbox and delivery provider interface
+  server.py                  HTTP API and background maintenance
+  seed.py                    Synthetic demonstration fixtures
+  static/                    HTML, CSS, JavaScript, icon
+tests/                       Service, HTTP, and performance tests
+```
+
+## Validation
+
+```powershell
+python -m unittest discover -s tests -v
+python -m compileall -q src run.py
+node --check src/medicine_booking/static/app.js
+git diff --check
+```
+
+Node is only needed for the optional JavaScript syntax check. Tests use isolated temporary SQLite databases and include concurrent last-unit allocation, transaction rollback, restock replay, cancellation and expiry promotion, partial allocation, unsafe inventory, review and override authorization, patient isolation, notification outages, persistence, and the HTTP collection workflow.
+
+## Integration and deployment scope
+
+This implementation is a local prototype with synthetic demonstration data. It does not diagnose, prescribe, infer urgency from patient text, substitute medicines, or provide emergency care. No external health-record system is connected; continuity is `UNKNOWN` until confirmed by a pharmacist. The structured JSON format is an internal adapter contract, not a complete FHIR or ABDM implementation.
+
+The local HTTP server is not a production internet-facing server. Production deployment still requires a supported application server behind HTTPS, encrypted database/file storage, identity and staff provisioning, backups, configurable retention and consent enforcement for external health records, bounded external-service adapters, and operational monitoring. SQLite does not provide application-managed encryption at rest here. Demonstration credentials must never be deployed with real patient data.
+
+Product-owner-approved emergency guidance may be provided through both `MEDINEST_EMERGENCY_GUIDANCE` and `MEDINEST_EMERGENCY_GUIDANCE_VERSION`. Without both values, the app only states its operational scope; it does not fabricate approved guidance or interpret emergency symptoms.
+
+Branch names use standard prefixes such as `refactor/booking-platform`; commit messages follow Conventional Commits. Dates and stored timestamps use ISO 8601. Existing Git history is preserved, and commit timestamps reflect when changes are actually committed.
