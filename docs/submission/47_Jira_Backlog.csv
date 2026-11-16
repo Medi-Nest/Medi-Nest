@@ -1,0 +1,24 @@
+﻿Project Name,Issue Key,Issue Type,Summary,Status,Assignee,Sprint
+MediNest:Priority-Based Medicine Booking and Allocation Module for Pharma Apps,MBA-1,Epic,Prescription Intake & Patient Context,Done,,
+MediNest:Priority-Based Medicine Booking and Allocation Module for Pharma Apps,MBA-2,Epic,Priority-Based Medicine Booking,Done,,
+MediNest:Priority-Based Medicine Booking and Allocation Module for Pharma Apps,MBA-3,Epic,Inventory Allocation & Waitlist Management,Done,,
+MediNest:Priority-Based Medicine Booking and Allocation Module for Pharma Apps,MBA-4,Epic,"Pharmacist Operations, Notifications & Audit",Done,,
+MediNest:Priority-Based Medicine Booking and Allocation Module for Pharma Apps,MBA-5,Epic,"Secure Integrations, Safety & Release Readiness",Done,,
+MediNest:Priority-Based Medicine Booking and Allocation Module for Pharma Apps,MBA-6,Task,Define core prescription and medicine-request data models,Done,Jignas,Week 1: Foundations
+MediNest:Priority-Based Medicine Booking and Allocation Module for Pharma Apps,MBA-7,Task,Implement prescription upload validation and manual-review states,Done,Namit Krishna Renjith,Week 1: Foundations
+MediNest:Priority-Based Medicine Booking and Allocation Module for Pharma Apps,MBA-8,Task,Define external service contracts and mock adapters,Done,Mrudul,Week 1: Foundations
+MediNest:Priority-Based Medicine Booking and Allocation Module for Pharma Apps,MBA-9,Task,Enforce role-based access and protect patient data,Done,Mayank Kedia,Week 1: Foundations
+MediNest:Priority-Based Medicine Booking and Allocation Module for Pharma Apps,MBA-10,Task,Add structured e-prescription import and schema mapping,Done,Namit Krishna Renjith,Week 2: Booking & Priority
+MediNest:Priority-Based Medicine Booking and Allocation Module for Pharma Apps,MBA-11,Task,Retrieve minimal patient context with consent and UNKNOWN fallback,Done,Mrudul,Week 2: Booking & Priority
+MediNest:Priority-Based Medicine Booking and Allocation Module for Pharma Apps,MBA-12,Story,Create and track eligible medicine bookings,Done,Mayank Kedia,Week 2: Booking & Priority
+MediNest:Priority-Based Medicine Booking and Allocation Module for Pharma Apps,MBA-13,Task,Implement explainable and deterministic booking priority,Done,Jignas,Week 2: Booking & Priority
+MediNest:Priority-Based Medicine Booking and Allocation Module for Pharma Apps,MBA-14,Story,"Build patient booking, status, and waitlist views",Done,Mayank Kedia,Week 2: Booking & Priority
+MediNest:Priority-Based Medicine Booking and Allocation Module for Pharma Apps,MBA-15,Task,Build concurrency-safe inventory reservation service,Done,Namit Krishna Renjith,Week 3: Allocation & Waitlist
+MediNest:Priority-Based Medicine Booking and Allocation Module for Pharma Apps,MBA-16,Task,Implement ordered waitlists and stock-restock promotion,Done,Jignas,Week 3: Allocation & Waitlist
+MediNest:Priority-Based Medicine Booking and Allocation Module for Pharma Apps,MBA-17,Task,"Handle reservation expiry, cancellation, and partial allocation",Done,Mayank Kedia,Week 3: Allocation & Waitlist
+MediNest:Priority-Based Medicine Booking and Allocation Module for Pharma Apps,MBA-18,Task,Build pharmacist review and documented override workflow,Done,Namit Krishna Renjith,Week 3: Allocation & Waitlist
+MediNest:Priority-Based Medicine Booking and Allocation Module for Pharma Apps,MBA-19,Task,"Send booking, waitlist, reservation, and cancellation notifications",Done,Mrudul,Week 3: Allocation & Waitlist
+MediNest:Priority-Based Medicine Booking and Allocation Module for Pharma Apps,MBA-20,Task,Create pharmacy manager audit and fulfilment overview,Done,Mayank Kedia,Week 4: Hardening & Demo
+MediNest:Priority-Based Medicine Booking and Allocation Module for Pharma Apps,MBA-21,Task,Enforce safety boundaries and allocation business rules,Done,Jignas,Week 4: Hardening & Demo
+MediNest:Priority-Based Medicine Booking and Allocation Module for Pharma Apps,MBA-22,Task,"Validate performance, reliability, and failure recovery",Done,Namit Krishna Renjith,Week 4: Hardening & Demo
+MediNest:Priority-Based Medicine Booking and Allocation Module for Pharma Apps,MBA-23,Task,"Complete SRS traceability, end-to-end validation, and demo readiness",Done,Mrudul,Week 4: Hardening & Demo

@@ -4,6 +4,8 @@ A local pharmacy application for prescription review, medicine booking, stock re
 
 Project records: [Engineering](docs/ENGINEERING.md), [test report](docs/TEST_REPORT.md), and [sprint retrospectives](docs/SPRINT_RETROSPECTIVES.md).
 
+Submission files: [Combined report, separate documents and screenshots](docs/submission/README.md).
+
 ## Run locally
 
 Requires **Python 3.11 or later**. There are no third-party runtime dependencies or frontend build steps.
