@@ -1,565 +1,476 @@
-"""MBA-12 and MBA-17: booking creation, direct allocation, partial allocation,
-reservation expiry, and cancellation.
+"""Prescription, booking, inventory and pharmacist application services."""
+import base64
+import binascii
+import json
+from datetime import date, datetime, timedelta, timezone
+from .access import require_owner, require_role
+from .domain import (AppError, INVENTORY_STATES, PRESCRIPTION_STATES, TERMINAL_STATES,
+                     new_id, utc_now, validate_date, validate_fields, validate_integer, validate_text)
+from .priority import CONTINUITY_RANK, POLICY_VERSION, URGENCY_RANK, priority_key, priority_reasons
+from .notifications import DEFAULT_TEMPLATES
 
-``BookingService`` shares state, lock, and audit trail with ``WaitlistService``
-so a booking can move between direct reservation and the waitlist without two
-copies of its state disagreeing.
-"""
-
-from __future__ import annotations
-
-from dataclasses import dataclass, replace
-from datetime import date, datetime, timedelta
-from enum import Enum
-
-from .access import (
-    ALLOCATION_RUN, BOOKING_CANCEL_ANY, BOOKING_CANCEL_OWN, BOOKING_CREATE_ANY,
-    BOOKING_CREATE_OWN, PRESCRIPTION_REVIEW, RESERVATION_EXPIRE, Principal,
-    authorize_patient_record,
-)
-from .domain import (
-    ActorRole, AuditEvent, Booking, BookingStatus, ContinuityStatus,
-    MedicationRequest, MedicationRequestStatus, Prescription, PrescriptionStatus,
-    PriorityContext, WaitlistEntry, WaitlistState, new_record_id,
-    transition_booking, utc_now,
-)
-from .safety import check_allocation_safety
-from .waitlist import WaitlistService
-
-
-class DuplicateAction(str, Enum):
-    REJECT = "REJECT"
-    FLAG = "FLAG"
-
-
-class DuplicateMatch(str, Enum):
-    # Same patient asking for the same medicine again, from any prescription.
-    SAME_MEDICINE = "SAME_MEDICINE"
-    # Same patient booking the same medication request line again.
-    SAME_REQUEST = "SAME_REQUEST"
-
-
-# States in which a booking still holds or is waiting for stock.
-ACTIVE_BOOKING_STATES = frozenset({
-    BookingStatus.SUBMITTED, BookingStatus.ELIGIBILITY_PENDING,
-    BookingStatus.ELIGIBLE, BookingStatus.WAITLISTED, BookingStatus.RESERVED,
-    BookingStatus.CONFIRMED, BookingStatus.READY,
-})
-_REVIEW_PENDING = frozenset({
-    PrescriptionStatus.RECEIVED, PrescriptionStatus.VALIDATION_PENDING,
-    PrescriptionStatus.MANUAL_REVIEW_REQUIRED,
-})
-_CLOSED_REQUEST = frozenset({
-    MedicationRequestStatus.REJECTED, MedicationRequestStatus.CANCELLED,
-    MedicationRequestStatus.FULFILLED,
-})
-_STOCK_HOLDING = frozenset({BookingStatus.RESERVED, BookingStatus.READY})
-
-
-def _aware(value: datetime) -> None:
-    if value.tzinfo is None or value.utcoffset() is None:
-        raise ValueError("timestamp must be timezone-aware")
-
-
-@dataclass(frozen=True, slots=True)
-class BookingPolicy:
-    """Configurable booking rules (REQ-PB-25/26, REQ-AW-21/24)."""
-
-    duplicate_action: DuplicateAction = DuplicateAction.REJECT
-    duplicate_match: DuplicateMatch = DuplicateMatch.SAME_MEDICINE
-    partial_allocation: bool = False
-    reservation_duration: timedelta | None = None
-    # When set, an eligible booking gets this starting urgency from a trusted
-    # system source until a pharmacist confirms a different one. Patients
-    # never supply urgency.
-    default_urgency: str | None = None
-    default_urgency_source: str = "booking-service"
-    policy_version: str = "v1"
-
-    def __post_init__(self) -> None:
-        if self.reservation_duration is not None and self.reservation_duration <= timedelta():
-            raise ValueError("reservation duration must be positive")
-        if self.default_urgency is not None and not self.default_urgency.strip():
-            raise ValueError("default urgency cannot be blank")
-        if not self.default_urgency_source.strip() or not self.policy_version.strip():
-            raise ValueError("urgency source and policy version are required")
-
-
-@dataclass(frozen=True, slots=True)
-class BookingOutcome:
-    """Result of a booking request. ``booking`` is None when no record was created."""
-
-    booking: Booking | None
-    reason_codes: tuple[str, ...] = ()
-    flags: tuple[str, ...] = ()
-
-    @property
-    def accepted(self) -> bool:
-        return self.booking is not None and self.booking.booking_state is BookingStatus.ELIGIBLE
-
-
-@dataclass(frozen=True, slots=True)
-class Allocation:
-    """A direct stock reservation for one booking (REQ-AW-06/07/08/26)."""
-
-    booking_id: str
-    inventory_id: str
-    medicine_code: str
-    location_id: str
-    requested_quantity: int
-    allocated_quantity: int
-    reservation_key: str
-    reserved_at: datetime
-    expires_at: datetime | None = None
-    batch_id: str | None = None
-    batch_expiry_date: date | None = None
-    released_at: datetime | None = None
-    release_reason: str | None = None
-
-    def __post_init__(self) -> None:
-        if not 0 < self.allocated_quantity <= self.requested_quantity:
-            raise ValueError("allocated quantity must be between 1 and the requested quantity")
-        _aware(self.reserved_at)
-        for value in (self.expires_at, self.released_at):
-            if value is not None:
-                _aware(value)
-
-    @property
-    def remaining_quantity(self) -> int:
-        """Quantity still unfilled. It is never also waitlisted (REQ-AW-27)."""
-        return self.requested_quantity - self.allocated_quantity
-
-    @property
-    def active(self) -> bool:
-        return self.released_at is None
-
-
-@dataclass(frozen=True, slots=True)
-class AllocationOutcome:
-    booking_id: str
-    booking_state: BookingStatus
-    allocation: Allocation | None = None
-    waitlist_entry: WaitlistEntry | None = None
-    reason_codes: tuple[str, ...] = ()
+SYSTEM = {'id': 'system', 'role': 'SYSTEM'}
+BOOKING_QUERY = '''SELECT b.*,r.prescription_id,r.medicine_code,m.name AS medicine_name,m.strength,
+    m.category,p.urgency,p.continuity,p.status AS prescription_status,p.expires_on AS prescription_expiry,
+    p.restricted_approved,p.verified_by,u.name AS patient_name
+    FROM bookings b JOIN medication_requests r ON r.id=b.request_id
+    JOIN medicines m ON m.code=r.medicine_code JOIN prescriptions p ON p.id=r.prescription_id
+    JOIN users u ON u.id=b.patient_id'''
 
 
 class BookingService:
-    """Prototype booking workflow. Persist its state in a real deployment."""
-
-    def __init__(self, waitlist: WaitlistService, *,
-                 policy: BookingPolicy | None = None) -> None:
-        self.waitlist = waitlist
-        self.policy = policy if policy is not None else BookingPolicy()
-        self.allocations: dict[str, Allocation] = {}
-        self.rejection_reasons: dict[str, tuple[str, ...]] = {}
-        self.hold_reasons: dict[str, tuple[str, ...]] = {}
-        self.flags: dict[str, tuple[str, ...]] = {}
-        # One lock for both services keeps booking and waitlist state consistent.
-        self._lock = waitlist._lock
-
-    # Shared state lives in the waitlist service.
-    @property
-    def bookings(self) -> dict[str, Booking]:
-        return self.waitlist.bookings
-
-    @property
-    def prescriptions(self) -> dict[str, Prescription]:
-        return self.waitlist.prescriptions
-
-    @property
-    def medication_requests(self) -> dict[str, MedicationRequest]:
-        return self.waitlist.medication_requests
-
-    @property
-    def audit_events(self) -> list[AuditEvent]:
-        return self.waitlist.audit_events
-
-    # ------------------------------------------------------------------ MBA-12
-
-    def submit(self, principal: Principal, *, prescription_id: str,
-               medication_request_id: str, quantity: int | None = None,
-               at: datetime | None = None,
-               booking_id: str | None = None) -> BookingOutcome:
-        """Create a booking and decide whether it may progress automatically."""
-        when = at if at is not None else utc_now()
-        _aware(when)
-        with self._lock:
-            prescription = self.prescriptions.get(prescription_id)
-            if prescription is None:
-                # Same error as "not yours" so IDs cannot be probed.
-                principal.require(BOOKING_CREATE_ANY, at=when)
-                raise ValueError("prescription not found")
-            authorize_patient_record(
-                principal, prescription.patient_id, own_permission=BOOKING_CREATE_OWN,
-                any_permission=BOOKING_CREATE_ANY, at=when,
-            )
-            request = self.medication_requests.get(medication_request_id)
-            if request is None or request.prescription_id != prescription_id:
-                return self._reject_request(principal, prescription_id,
-                                            "MEDICINE_NOT_ON_PRESCRIPTION", when)
-            requested = request.requested_quantity if quantity is None else quantity
-            if isinstance(requested, bool) or not isinstance(requested, int) or requested <= 0:
-                return self._reject_request(principal, prescription_id,
-                                            "INVALID_QUANTITY", when)
-            if requested != request.requested_quantity:
-                return self._reject_request(principal, prescription_id,
-                                            "QUANTITY_DOES_NOT_MATCH_PRESCRIPTION", when)
-
-            new_id = booking_id if booking_id is not None else new_record_id()
-            if new_id in self.bookings:
-                raise ValueError("booking identifier already exists")
-            booking = Booking(new_id, prescription.patient_id, prescription_id,
-                              medication_request_id, requested,
-                              created_at=when, updated_at=when)
-            self._audit(principal, "BOOKING_SUBMITTED", new_id, when,
-                        current=BookingStatus.SUBMITTED.value)
-            booking = transition_booking(booking, BookingStatus.ELIGIBILITY_PENDING, at=when)
-
-            reasons: list[str] = []
-            flags: list[str] = []
-            duplicate = self._find_duplicate(booking, request)
-            if duplicate is not None:
-                if self.policy.duplicate_action is DuplicateAction.REJECT:
-                    reasons.append("DUPLICATE_ACTIVE_BOOKING")
-                else:
-                    flags.append("POSSIBLE_DUPLICATE")
-                    self._audit(principal, "BOOKING_DUPLICATE_FLAGGED", new_id, when,
-                                reason=f"existing_booking={duplicate}")
-            if prescription.status in {PrescriptionStatus.INVALID, PrescriptionStatus.EXPIRED}:
-                reasons.append(f"PRESCRIPTION_{prescription.status.value}")
-            if request.request_status in _CLOSED_REQUEST:
-                reasons.append("MEDICATION_REQUEST_NOT_ELIGIBLE")
-
-            if reasons:
-                booking = self._reject(principal, booking, tuple(reasons), when)
-                result = tuple(reasons)
-            else:
-                hold = self._hold_reasons(prescription, request)
-                if hold:
-                    self.hold_reasons[new_id] = hold
-                    self._audit(principal, "BOOKING_HELD_FOR_REVIEW", new_id, when,
-                                current=BookingStatus.ELIGIBILITY_PENDING.value,
-                                reason=",".join(hold))
-                    result = hold
-                else:
-                    booking = self._make_eligible(principal, booking, when)
-                    result = ()
-            self.bookings[new_id] = booking
-            if flags:
-                self.flags[new_id] = tuple(flags)
-            # REQ-NT-01 and REQ-NT-06: tell the patient the booking arrived or
-            # why it could not be accepted.
-            self._notify(new_id, "REJECTED" if booking.booking_state is BookingStatus.REJECTED
-                         else "SUBMITTED", when)
-            return BookingOutcome(booking, result, tuple(flags))
-
-    def recheck_eligibility(self, principal: Principal, booking_id: str, *,
-                            at: datetime | None = None) -> BookingOutcome:
-        """Re-run eligibility after a pharmacist finishes prescription review."""
-        when = at if at is not None else utc_now()
-        _aware(when)
-        principal.require(PRESCRIPTION_REVIEW, at=when)
-        with self._lock:
-            booking = self.bookings[booking_id]
-            if booking.booking_state is not BookingStatus.ELIGIBILITY_PENDING:
-                raise ValueError("only a booking awaiting eligibility can be rechecked")
-            prescription = self.prescriptions[booking.prescription_id]
-            request = self.medication_requests[booking.medication_request_id]
-            reasons: list[str] = []
-            if prescription.status in {PrescriptionStatus.INVALID, PrescriptionStatus.EXPIRED}:
-                reasons.append(f"PRESCRIPTION_{prescription.status.value}")
-            if request.request_status in _CLOSED_REQUEST:
-                reasons.append("MEDICATION_REQUEST_NOT_ELIGIBLE")
-            if reasons:
-                self.hold_reasons.pop(booking_id, None)
-                updated = self._reject(principal, booking, tuple(reasons), when)
-                self.bookings[booking_id] = updated
-                return BookingOutcome(updated, tuple(reasons))
-            hold = self._hold_reasons(prescription, request)
-            if hold:
-                self.hold_reasons[booking_id] = hold
-                return BookingOutcome(booking, hold)
-            self.hold_reasons.pop(booking_id, None)
-            updated = self._make_eligible(principal, booking, when)
-            self.bookings[booking_id] = updated
-            return BookingOutcome(updated, ())
-
-    # ------------------------------------------------------------------ MBA-17
-
-    def allocate(self, principal: Principal, booking_id: str, location_id: str, *,
-                 at: datetime | None = None) -> AllocationOutcome:
-        """Reserve stock for an eligible booking, or waitlist it (SRS 5.3.2 A, B, D)."""
-        when = at if at is not None else utc_now()
-        _aware(when)
-        principal.require(ALLOCATION_RUN, at=when)
-        with self._lock:
-            booking = self.bookings[booking_id]
-            if booking.booking_state is not BookingStatus.ELIGIBLE:
-                raise ValueError("only an eligible booking can be allocated")
-            prescription = self.prescriptions[booking.prescription_id]
-            request = self.medication_requests[booking.medication_request_id]
-            if not request.medicine_code:
-                raise ValueError("a medicine code is required for allocation")
-            key = f"booking:{booking_id}"
-            for _ in range(2):
-                # Re-read inventory on every attempt (REQ-AW-01, REQ-AW-32).
-                inventory = self.waitlist.inventory.read(request.medicine_code, location_id)
-                decision = check_allocation_safety(
-                    booking, prescription, request, inventory, at=when,
-                    policy=self.waitlist.safety_policy,
-                    review=self.waitlist.reviews.get(booking_id),
-                )
-                quantity = booking.requested_quantity
-                if not decision.allowed:
-                    if set(decision.reason_codes) != {"INSUFFICIENT_ALLOCATABLE_STOCK"}:
-                        self._audit(principal, "ALLOCATION_BLOCKED", booking_id, when,
-                                    reason=",".join(decision.reason_codes))
-                        return AllocationOutcome(booking_id, booking.booking_state,
-                                                 reason_codes=decision.reason_codes)
-                    available = decision.allocatable_quantity
-                    if not (self.policy.partial_allocation and available > 0):
-                        return self._waitlist(principal, booking_id, request.medicine_code,
-                                              location_id, when)
-                    quantity = available
-                    partial = check_allocation_safety(
-                        booking, prescription, request, inventory, at=when,
-                        quantity_to_allocate=quantity,
-                        policy=self.waitlist.safety_policy,
-                        review=self.waitlist.reviews.get(booking_id),
-                    )
-                    if not partial.allowed:
-                        return self._waitlist(principal, booking_id, request.medicine_code,
-                                              location_id, when)
-                try:
-                    reserved = self.waitlist.inventory.reserve(
-                        inventory.inventory_id, booking_id, quantity, key, at=when)
-                    failure = "RESERVATION_CONFLICT"
-                except Exception as exc:  # adapter failure must not corrupt state
-                    reserved = False
-                    failure = type(exc).__name__
-                if reserved:
-                    return self._record_reservation(principal, booking, inventory,
-                                                     quantity, key, location_id, when)
-                self._audit(principal, "ALLOCATION_FAILED", booking_id, when, reason=failure)
-            return AllocationOutcome(booking_id, booking.booking_state,
-                                     reason_codes=("RESERVATION_CONFLICT",))
-
-    def cancel(self, principal: Principal, booking_id: str, *,
-               at: datetime | None = None) -> Booking:
-        """Cancel a booking, release any stock, and re-offer it (SRS 5.3.2 F)."""
-        when = at if at is not None else utc_now()
-        _aware(when)
-        with self._lock:
-            booking = self.bookings.get(booking_id)
-            if booking is None:
-                principal.require(BOOKING_CANCEL_ANY, at=when)
-                raise ValueError("booking not found")
-            authorize_patient_record(
-                principal, booking.patient_id, own_permission=BOOKING_CANCEL_OWN,
-                any_permission=BOOKING_CANCEL_ANY, at=when,
-            )
-            if when < booking.updated_at:
-                raise ValueError("cancellation cannot precede the last booking update")
-            allocation = self.allocations.get(booking_id)
-            if allocation is not None and allocation.active and booking.booking_state in _STOCK_HOLDING:
-                self._release(allocation, "CANCELLED", when)
-                updated = transition_booking(booking, BookingStatus.CANCELLED, at=when)
-                self.bookings[booking_id] = updated
-                self._audit(principal, "BOOKING_CANCELLED", booking_id, when,
-                            previous=booking.booking_state.value,
-                            current=BookingStatus.CANCELLED.value)
-                self._notify(booking_id, "CANCELLED", when)
-                self.waitlist.reevaluate(allocation.medicine_code, allocation.location_id, at=when)
-                return updated
-            if booking.booking_state in {BookingStatus.WAITLISTED, BookingStatus.RESERVED}:
-                # Waitlist-managed booking: the waitlist releases and re-offers stock.
-                self.waitlist.cancel_booking(booking_id, at=when)
-                self._audit(principal, "BOOKING_CANCELLED", booking_id, when,
-                            previous=booking.booking_state.value,
-                            current=BookingStatus.CANCELLED.value)
-                return self.bookings[booking_id]
-            raise ValueError("booking cannot be cancelled in its current state")
-
-    def expire_reservations(self, principal: Principal, *,
-                            at: datetime | None = None) -> tuple[str, ...]:
-        """Release expired direct and waitlist reservations (SRS 5.3.2 E)."""
-        when = at if at is not None else utc_now()
-        _aware(when)
-        principal.require(RESERVATION_EXPIRE, at=when)
-        with self._lock:
-            expired: list[str] = []
-            affected: set[tuple[str, str]] = set()
-            for booking_id, allocation in sorted(self.allocations.items()):
-                booking = self.bookings[booking_id]
-                if (not allocation.active or allocation.expires_at is None
-                        or allocation.expires_at > when
-                        or booking.booking_state is not BookingStatus.RESERVED):
-                    continue
-                self._release(allocation, "RESERVATION_EXPIRED", when)
-                self.bookings[booking_id] = transition_booking(
-                    booking, BookingStatus.EXPIRED, at=max(when, booking.updated_at))
-                self._audit(principal, "RESERVATION_EXPIRED", booking_id, when,
-                            previous=BookingStatus.RESERVED.value,
-                            current=BookingStatus.EXPIRED.value)
-                self._notify(booking_id, "EXPIRED", when)
-                expired.append(booking_id)
-                affected.add((allocation.medicine_code, allocation.location_id))
-            for medicine_code, location_id in sorted(affected):
-                self.waitlist.reevaluate(medicine_code, location_id, at=when)
-            expired.extend(self.waitlist.expire_reservations(at=when))
-            return tuple(expired)
-
-    def reservation_expiry(self, booking_id: str) -> datetime | None:
-        """Expiry of the booking's active reservation, direct or via the waitlist."""
-        allocation = self.allocations.get(booking_id)
-        if allocation is not None and allocation.active:
-            return allocation.expires_at
-        for entry in self.waitlist.entries.values():
-            if entry.booking_id == booking_id and entry.state is WaitlistState.PROMOTED:
-                return entry.reservation_expires_at
-        return None
-
-    # --------------------------------------------------------------- helpers
-
-    def _find_duplicate(self, booking: Booking, request: MedicationRequest) -> str | None:
-        for other in self.bookings.values():
-            if (other.patient_id != booking.patient_id
-                    or other.booking_state not in ACTIVE_BOOKING_STATES):
-                continue
-            if self.policy.duplicate_match is DuplicateMatch.SAME_REQUEST:
-                if other.medication_request_id == request.medication_request_id:
-                    return other.booking_id
-                continue
-            other_request = self.medication_requests.get(other.medication_request_id)
-            if other_request is not None and _same_medicine(other_request, request):
-                return other.booking_id
-        return None
+    def __init__(self, database, notification_templates=None):
+        self.database = database
+        templates = notification_templates or {}
+        if not isinstance(templates,dict) or set(templates)-set(DEFAULT_TEMPLATES):
+            raise ValueError('Unsupported notification template configuration.')
+        for template in templates.values():
+            if not isinstance(template,str) or not 1 <= len(template.strip()) <= 500:
+                raise ValueError('Notification templates must contain 1–500 characters.')
+        self.notification_templates = {**DEFAULT_TEMPLATES,**templates}
 
     @staticmethod
-    def _hold_reasons(prescription: Prescription,
-                      request: MedicationRequest) -> tuple[str, ...]:
-        if prescription.status in _REVIEW_PENDING:
-            return ("PRESCRIPTION_AWAITING_REVIEW",)
-        if request.request_status is MedicationRequestStatus.PENDING:
-            return ("MEDICATION_REQUEST_PENDING",)
-        return ()
+    def audit(db, actor, event, object_id, previous=None, current=None, reason=''):
+        db.execute('''INSERT INTO audit (id,actor_id,actor_role,event,object_id,previous_state,new_state,reason,created_at)
+            VALUES (?,?,?,?,?,?,?,?,?)''', (new_id(), actor['id'], actor['role'], event, object_id,
+            json.dumps(previous) if previous is not None else None,
+            json.dumps(current) if current is not None else None, reason, utc_now()))
 
-    def _make_eligible(self, principal: Principal, booking: Booking,
-                       when: datetime) -> Booking:
-        updated = transition_booking(booking, BookingStatus.ELIGIBLE, at=when)
-        self._audit(principal, "BOOKING_ELIGIBLE", booking.booking_id, when,
-                    previous=BookingStatus.ELIGIBILITY_PENDING.value,
-                    current=BookingStatus.ELIGIBLE.value)
-        if (self.policy.default_urgency is not None
-                and booking.booking_id not in self.waitlist.contexts):
-            self.waitlist.contexts[booking.booking_id] = PriorityContext(
-                booking.booking_id, self.policy.default_urgency,
-                self.policy.default_urgency_source, ContinuityStatus.UNKNOWN,
-                booking.created_at, ActorRole.SYSTEM, self.policy.policy_version,
-                reason_codes=("DEFAULT_URGENCY",), evaluated_at=when,
-            )
-        return updated
+    def notify(self, db, booking, template):
+        message = self.notification_templates[template]
+        if template in {'RESERVED', 'PARTIALLY_RESERVED'} and booking['expires_at']:
+            message += ' Collect before ' + booking['expires_at'] + '.'
+        db.execute('''INSERT INTO notifications (id,patient_id,booking_id,template,message,created_at)
+            VALUES (?,?,?,?,?,?)''', (new_id(), booking['patient_id'], booking['id'], template, message, utc_now()))
 
-    def _reject(self, principal: Principal, booking: Booking,
-                reasons: tuple[str, ...], when: datetime) -> Booking:
-        updated = transition_booking(booking, BookingStatus.REJECTED, at=when)
-        self.rejection_reasons[booking.booking_id] = reasons
-        self._audit(principal, "BOOKING_REJECTED", booking.booking_id, when,
-                    previous=booking.booking_state.value,
-                    current=BookingStatus.REJECTED.value, reason=",".join(reasons))
-        return updated
+    def transition(self, db, booking, status, actor, reason=''):
+        if booking['status'] != status:
+            db.execute('UPDATE bookings SET status=?,reason=?,updated_at=? WHERE id=?', (status, reason, utc_now(), booking['id']))
+            self.audit(db, actor, 'BOOKING_' + status, booking['id'], booking['status'], status, reason)
+            self.notify(db, dict(booking), status)
+        elif booking['reason'] != reason:
+            db.execute('UPDATE bookings SET reason=?,updated_at=? WHERE id=?', (reason, utc_now(), booking['id']))
 
-    def _reject_request(self, principal: Principal, prescription_id: str,
-                        reason: str, when: datetime) -> BookingOutcome:
-        # No booking record exists, so the reason is kept against the prescription.
-        self.audit_events.append(AuditEvent(
-            new_record_id(), principal.actor_id, principal.actor_role,
-            "BOOKING_REQUEST_REJECTED", "Prescription", prescription_id,
-            timestamp=when, reason=reason,
-        ))
-        return BookingOutcome(None, (reason,))
+    @staticmethod
+    def find_booking(db, booking_id, actor):
+        booking = db.execute(BOOKING_QUERY + ' WHERE b.id=?', (booking_id,)).fetchone()
+        if not booking:
+            raise AppError('Booking not found.', 404)
+        require_owner(actor, booking['patient_id'])
+        return dict(booking)
 
-    def _waitlist(self, principal: Principal, booking_id: str, medicine_code: str,
-                  location_id: str, when: datetime) -> AllocationOutcome:
-        self._audit(principal, "ALLOCATION_FAILED", booking_id, when,
-                    reason="INSUFFICIENT_ALLOCATABLE_STOCK")
-        entry = self.waitlist.add_unfilled(booking_id, medicine_code, location_id, at=when)
-        return AllocationOutcome(booking_id, BookingStatus.WAITLISTED, waitlist_entry=entry,
-                                 reason_codes=("INSUFFICIENT_ALLOCATABLE_STOCK",))
+    @staticmethod
+    def eligibility_reason(booking):
+        if booking['prescription_status'] != 'VALID' or booking['prescription_expiry'] < date.today().isoformat():
+            return 'Prescription is invalid, expired, or awaiting review.'
+        if not booking['verified_by']:
+            return 'Prescription requires pharmacist validation.'
+        if booking['category'] == 'EXCLUDED':
+            return 'This medicine is excluded from allocation.'
+        if booking['category'] == 'RESTRICTED' and not booking['restricted_approved']:
+            return 'Restricted medicine requires explicit pharmacist review.'
+        return ''
 
-    def _record_reservation(self, principal: Principal, booking: Booking, inventory,
-                            quantity: int, key: str, location_id: str,
-                            when: datetime) -> AllocationOutcome:
-        duration = self.policy.reservation_duration
-        allocation = Allocation(
-            booking.booking_id, inventory.inventory_id, inventory.medicine_code,
-            location_id, booking.requested_quantity, quantity, key, when,
-            expires_at=when + duration if duration is not None else None,
-            batch_id=inventory.batch_id, batch_expiry_date=inventory.expiry_date,
-        )
-        self.allocations[booking.booking_id] = allocation
-        updated = transition_booking(booking, BookingStatus.RESERVED, at=when)
-        self.bookings[booking.booking_id] = updated
-        self._audit(principal, "STOCK_RESERVED", booking.booking_id, when,
-                    previous=BookingStatus.ELIGIBLE.value,
-                    current=BookingStatus.RESERVED.value,
-                    reason=f"inventory={inventory.inventory_id};quantity={quantity}")
-        reasons: tuple[str, ...] = ()
-        if allocation.remaining_quantity:
-            reasons = ("PARTIAL_ALLOCATION",)
-            self._audit(principal, "PARTIAL_ALLOCATION", booking.booking_id, when,
-                        reason=(f"allocated={quantity};"
-                                f"remaining={allocation.remaining_quantity}"))
-        # Notification runs after the reservation and cannot undo it (REQ-AW-33).
-        self._notify(booking.booking_id, "RESERVED", when)
-        return AllocationOutcome(booking.booking_id, BookingStatus.RESERVED,
-                                 allocation=allocation, reason_codes=reasons)
+    def submit_prescription(self, actor, payload):
+        require_role(actor, 'PATIENT', 'PHARMACIST')
+        allowed = {'patient_id','source_identifier','authored_on','expires_on','prescriber','medicines','document','consent_reference'}
+        validate_fields(payload, allowed, {'authored_on','expires_on','prescriber','medicines'})
+        patient_id = payload.get('patient_id', actor['id'])
+        if not isinstance(patient_id, str):
+            raise AppError('Select a valid patient.')
+        require_owner(actor, patient_id)
+        authored = validate_date(payload['authored_on'], 'prescription date')
+        expiry = validate_date(payload['expires_on'], 'expiry date')
+        if authored > date.today().isoformat() or expiry < authored:
+            raise AppError('Check the prescription and expiry dates.')
+        prescriber = validate_text(payload['prescriber'], 'prescriber reference')
+        source_id = validate_text(payload.get('source_identifier',''), 'source identifier', required=False)
+        consent = validate_text(payload.get('consent_reference',''), 'consent reference', required=False)
+        medicines = payload['medicines']
+        if not isinstance(medicines, list) or not 1 <= len(medicines) <= 20:
+            raise AppError('Include 1–20 prescribed medicines.')
+        normalized = []
+        for item in medicines:
+            validate_fields(item, {'medicine_code','quantity'}, {'medicine_code','quantity'})
+            code = validate_text(item['medicine_code'], 'medicine code', 40)
+            quantity = validate_integer(item['quantity'], 'Prescribed quantity')
+            if code in [x[0] for x in normalized]:
+                raise AppError('Include each medicine only once.')
+            normalized.append((code, quantity))
+        filename = None
+        document = None
+        if 'document' in payload:
+            upload = payload['document']
+            validate_fields(upload, {'filename','content'}, {'filename','content'})
+            filename = validate_text(upload['filename'], 'filename', 120)
+            if '/' in filename or '\\' in filename:
+                raise AppError('Use a filename without a directory.')
+            try:
+                if not isinstance(upload['content'], str) or len(upload['content']) > 7_000_000:
+                    raise ValueError()
+                document = base64.b64decode(upload['content'], validate=True)
+            except (ValueError, binascii.Error):
+                raise AppError('The document could not be read.') from None
+            extension = filename.rsplit('.', 1)[-1].lower()
+            signatures = {'pdf': b'%PDF-', 'png': b'\x89PNG\r\n\x1a\n', 'jpg': b'\xff\xd8\xff', 'jpeg': b'\xff\xd8\xff'}
+            if not document or len(document) > 5*1024*1024 or extension not in signatures or not document.startswith(signatures[extension]):
+                raise AppError('Upload a PDF, PNG or JPEG document up to 5 MB.')
+        prescription_id = new_id()
+        timestamp = utc_now()
+        status = 'EXPIRED' if expiry < date.today().isoformat() else 'MANUAL_REVIEW_REQUIRED'
+        with self.database.transaction() as db:
+            if not db.execute("SELECT 1 FROM users WHERE id=? AND role='PATIENT'", (patient_id,)).fetchone():
+                raise AppError('Patient not found.', 404)
+            if source_id and db.execute('SELECT 1 FROM prescriptions WHERE patient_id=? AND source_identifier=?', (patient_id, source_id)).fetchone():
+                raise AppError('This prescription has already been imported.', 409)
+            for code, _ in normalized:
+                if not db.execute('SELECT 1 FROM medicines WHERE code=?', (code,)).fetchone():
+                    raise AppError('A prescribed medicine is not in the catalog.')
+            db.execute('''INSERT INTO prescriptions (id,patient_id,source,source_identifier,status,authored_on,expires_on,
+                prescriber,reason,consent_reference,filename,document,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                (prescription_id, patient_id, 'UPLOAD' if document else 'STRUCTURED_IMPORT', source_id, status, authored, expiry,
+                 prescriber, 'Awaiting pharmacist review.' if status != 'EXPIRED' else 'Prescription has expired.',
+                 consent, filename, document, timestamp, timestamp))
+            for code, quantity in normalized:
+                db.execute('INSERT INTO medication_requests VALUES (?,?,?,?)', (new_id(), prescription_id, code, quantity))
+            self.audit(db, actor, 'PRESCRIPTION_RECEIVED', prescription_id, current='RECEIVED')
+            self.audit(db, SYSTEM, 'PRESCRIPTION_VALIDATION', prescription_id, 'RECEIVED', 'VALIDATION_PENDING', 'Structural validation completed.')
+            self.audit(db, SYSTEM, 'PRESCRIPTION_VALIDATION', prescription_id, 'VALIDATION_PENDING', status, 'Clinical validation requires a pharmacist.')
+        return prescription_id
 
-    def _release(self, allocation: Allocation, reason: str, when: datetime) -> None:
-        if not self.waitlist.inventory.release(allocation.reservation_key, at=when):
-            raise ValueError("booking has no active reservation to release")
-        self.allocations[allocation.booking_id] = replace(
-            allocation, released_at=when, release_reason=reason)
-        self.audit_events.append(AuditEvent(
-            new_record_id(), "booking-service", ActorRole.SYSTEM, "STOCK_RELEASED",
-            "Booking", allocation.booking_id, timestamp=when,
-            reason=f"{reason};quantity={allocation.allocated_quantity}",
-        ))
+    def review_prescription(self, actor, prescription_id, payload):
+        require_role(actor, 'PHARMACIST')
+        validate_fields(payload, {'status','reason','urgency','continuity','restricted_approved'}, {'status','reason','urgency','continuity'})
+        status = payload['status']
+        if status not in PRESCRIPTION_STATES or payload['urgency'] not in URGENCY_RANK or payload['continuity'] not in CONTINUITY_RANK:
+            raise AppError('Choose a valid review status, urgency and continuity value.')
+        reason = validate_text(payload['reason'], 'review reason', 500)
+        restricted = payload.get('restricted_approved', False)
+        if type(restricted) is not bool:
+            raise AppError('Restricted-medicine approval must be true or false.')
+        with self.database.transaction() as db:
+            prescription = db.execute('SELECT * FROM prescriptions WHERE id=?', (prescription_id,)).fetchone()
+            if not prescription:
+                raise AppError('Prescription not found.', 404)
+            if status == 'VALID' and prescription['expires_on'] < date.today().isoformat():
+                raise AppError('An expired prescription cannot be approved.')
+            previous = {key: prescription[key] for key in ('status','urgency','continuity','restricted_approved','verified_by')}
+            current = {'status': status, 'urgency': payload['urgency'], 'continuity': payload['continuity'], 'restricted_approved': restricted, 'verified_by': actor['id']}
+            db.execute('''UPDATE prescriptions SET status=?,reason=?,urgency=?,continuity=?,restricted_approved=?,
+                verified_by=?,verified_at=?,updated_at=? WHERE id=?''',
+                (status, reason, payload['urgency'], payload['continuity'], int(restricted), actor['id'], utc_now(), utc_now(), prescription_id))
+            self.audit(db, actor, 'PRESCRIPTION_REVIEWED', prescription_id, previous, current, reason)
+            self.audit(db, actor, 'URGENCY_VERIFIED', prescription_id, previous['urgency'], current['urgency'], reason)
+            self._reconcile(db)
 
-    def _notify(self, booking_id: str, event_type: str, when: datetime) -> None:
-        if self.waitlist.notify is None:
-            return
+    def create_booking(self, actor, payload):
+        require_role(actor, 'PATIENT', 'PHARMACIST')
+        validate_fields(payload, {'request_id','quantity','location_id'}, {'request_id','quantity'})
+        request_id = validate_text(payload['request_id'], 'medication request', 40)
+        quantity = validate_integer(payload['quantity'], 'Requested quantity')
+        location = validate_text(payload.get('location_id', 'MAIN'), 'location', 40)
+        if location != 'MAIN':
+            raise AppError('Select the configured pharmacy location.')
+        booking_id = new_id()
         try:
-            self.waitlist.notify(booking_id, event_type)
-        except Exception as exc:
-            self.audit_events.append(AuditEvent(
-                new_record_id(), "booking-service", ActorRole.SYSTEM,
-                "NOTIFICATION_FAILED", "Booking", booking_id, timestamp=when,
-                reason=type(exc).__name__,
-            ))
+            with self.database.transaction() as db:
+                self._reconcile(db)
+                request = db.execute('''SELECT r.*,p.patient_id,p.status,p.expires_on,p.verified_by,p.restricted_approved,m.category
+                    FROM medication_requests r JOIN prescriptions p ON p.id=r.prescription_id
+                    JOIN medicines m ON m.code=r.medicine_code WHERE r.id=?''', (request_id,)).fetchone()
+                if not request:
+                    raise AppError('Medication request not found.', 404)
+                require_owner(actor, request['patient_id'])
+                if request['status'] != 'VALID' or request['expires_on'] < date.today().isoformat():
+                    raise AppError('This prescription must be valid and reviewed before booking.')
+                if db.execute("SELECT 1 FROM bookings WHERE request_id=? AND status NOT IN ('CANCELLED','REJECTED','FULFILLED','EXPIRED')", (request_id,)).fetchone():
+                    raise AppError('An active booking already exists for this medicine request.', 409)
+                fulfilled = db.execute('SELECT COALESCE(SUM(fulfilled_quantity),0) FROM bookings WHERE request_id=?', (request_id,)).fetchone()[0]
+                if quantity + fulfilled > request['quantity']:
+                    raise AppError('Requested quantity exceeds the remaining prescribed quantity.')
+                timestamp = utc_now()
+                db.execute('''INSERT INTO bookings (id,patient_id,request_id,location_id,quantity,status,created_at,updated_at)
+                    VALUES (?,?,?,?,?,'SUBMITTED',?,?)''', (booking_id, request['patient_id'], request_id, location, quantity, timestamp, timestamp))
+                booking = self.find_booking(db, booking_id, actor)
+                self.audit(db, actor, 'BOOKING_SUBMITTED', booking_id, current='SUBMITTED')
+                self.notify(db, booking, 'SUBMITTED')
+                self._allocate(db)
+        except AppError as error:
+            with self.database.transaction() as db:
+                self.audit(db, actor, 'BOOKING_REQUEST_REJECTED', booking_id, reason=str(error))
+            raise
+        return booking_id
 
-    def _audit(self, principal: Principal, event_type: str, booking_id: str,
-               when: datetime, *, previous: str | None = None,
-               current: str | None = None, reason: str | None = None) -> None:
-        self.audit_events.append(AuditEvent(
-            new_record_id(), principal.actor_id, principal.actor_role, event_type,
-            "Booking", booking_id, timestamp=when,
-            previous_state={"state": previous} if previous is not None else None,
-            new_state={"state": current} if current is not None else None,
-            reason=reason,
-        ))
+    def _release(self, db, booking, actor, reason):
+        items = db.execute("SELECT * FROM reservation_items WHERE booking_id=? AND state='RESERVED'", (booking['id'],)).fetchall()
+        for item in items:
+            db.execute('UPDATE inventory SET reserved=reserved-?,updated_at=? WHERE id=?', (item['quantity'], utc_now(), item['inventory_id']))
+        db.execute("UPDATE reservation_items SET state='RELEASED',updated_at=? WHERE booking_id=? AND state='RESERVED'", (utc_now(), booking['id']))
+        db.execute('UPDATE bookings SET reserved_quantity=0,expires_at=NULL,updated_at=? WHERE id=?', (utc_now(), booking['id']))
+        if items:
+            self.audit(db, actor, 'STOCK_RELEASED', booking['id'], booking['reserved_quantity'], 0, reason)
 
+    def _close_waitlist(self, db, booking_id, state):
+        entry = db.execute('SELECT * FROM waitlist WHERE booking_id=?', (booking_id,)).fetchone()
+        if entry and entry['state'] != state:
+            db.execute('UPDATE waitlist SET state=?,updated_at=? WHERE id=?', (state, utc_now(), entry['id']))
+            self.audit(db, SYSTEM, 'WAITLIST_' + state, booking_id, entry['state'], state)
 
-def _same_medicine(left: MedicationRequest, right: MedicationRequest) -> bool:
-    if left.medicine_code and right.medicine_code:
-        return left.medicine_code == right.medicine_code
-    if left.medicine_name and right.medicine_name:
-        return left.medicine_name.strip().casefold() == right.medicine_name.strip().casefold()
-    return False
+    def _reconcile(self, db):
+        today, timestamp = date.today().isoformat(), utc_now()
+        expired = db.execute("SELECT id,status FROM prescriptions WHERE expires_on<? AND status NOT IN ('EXPIRED','INVALID')", (today,)).fetchall()
+        for prescription in expired:
+            db.execute("UPDATE prescriptions SET status='EXPIRED',reason='Prescription has expired.',updated_at=? WHERE id=?", (timestamp,prescription['id']))
+            self.audit(db,SYSTEM,'PRESCRIPTION_EXPIRED',prescription['id'],prescription['status'],'EXPIRED')
+        for row in db.execute(BOOKING_QUERY + " WHERE b.status NOT IN ('CANCELLED','REJECTED','FULFILLED','EXPIRED')").fetchall():
+            booking = dict(row)
+            reason = self.eligibility_reason(booking)
+            if reason or (booking['expires_at'] and booking['expires_at'] <= timestamp):
+                state = 'REJECTED' if reason else 'EXPIRED'
+                reason = reason or 'Reservation collection window has ended.'
+                self._release(db, booking, SYSTEM, reason)
+                self.transition(db, booking, state, SYSTEM, reason)
+                self._close_waitlist(db, booking['id'], state)
+                continue
+            bad_stock = db.execute('''SELECT 1 FROM reservation_items r JOIN inventory i ON i.id=r.inventory_id
+                WHERE r.booking_id=? AND r.state='RESERVED' AND (i.state!='IN_STOCK' OR i.expires_on<?)''', (booking['id'],today)).fetchone()
+            if bad_stock:
+                self._release(db, booking, SYSTEM, 'Reserved batch is no longer allocatable.')
+                self.transition(db, booking, 'WAITLISTED', SYSTEM, 'Reserved batch is unavailable. Waiting for eligible stock.')
+        self._allocate(db)
 
+    def _allocate(self, db):
+        settings = dict(db.execute('SELECT key,value FROM settings').fetchall())
+        partial = settings['partial_allocation'] == 'true'
+        rows = db.execute(BOOKING_QUERY + " WHERE b.status IN ('SUBMITTED','WAITLISTED','PARTIALLY_RESERVED')").fetchall()
+        candidates = sorted([dict(row) for row in rows], key=priority_key)
+        group_ranks = {}
+        for booking in candidates:
+            reason = self.eligibility_reason(booking)
+            if reason:
+                self._release(db, booking, SYSTEM, reason)
+                self.transition(db, booking, 'REJECTED', SYSTEM, reason)
+                self._close_waitlist(db, booking['id'], 'REJECTED')
+                continue
+            group = (booking['medicine_code'],booking['location_id'])
+            group_ranks[group] = group_ranks.get(group,0) + 1
+            reasons = json.dumps(priority_reasons(booking))
+            rank = group_ranks[group]
+            if booking['priority_reasons'] != reasons or booking['priority_rank'] != rank or booking['policy_version'] != POLICY_VERSION:
+                self.audit(db,SYSTEM,'PRIORITY_EVALUATED',booking['id'],
+                           {'rank':booking['priority_rank'],'reasons':json.loads(booking['priority_reasons'])},
+                           {'rank':rank,'reasons':json.loads(reasons),'policy_version':POLICY_VERSION})
+            db.execute('UPDATE bookings SET priority_reasons=?,priority_rank=?,policy_version=?,evaluated_at=? WHERE id=?',
+                       (reasons,rank,POLICY_VERSION,utc_now(),booking['id']))
+            remaining = booking['quantity'] - booking['reserved_quantity'] - booking['fulfilled_quantity']
+            batches = db.execute('''SELECT * FROM inventory WHERE medicine_code=? AND location_id=? AND state='IN_STOCK'
+                AND expires_on>=? AND on_hand>reserved ORDER BY expires_on,id''', (*group,date.today().isoformat())).fetchall()
+            available = sum(batch['on_hand'] - batch['reserved'] for batch in batches)
+            quantity = min(available, remaining) if partial else (remaining if available >= remaining else 0)
+            if quantity:
+                left = quantity
+                for batch in batches:
+                    take = min(left,batch['on_hand']-batch['reserved'])
+                    if take:
+                        updated = db.execute('''UPDATE inventory SET reserved=reserved+?,updated_at=?
+                            WHERE id=? AND on_hand-reserved>=?''', (take,utc_now(),batch['id'],take)).rowcount
+                        if updated != 1:
+                            raise AppError('Stock changed. Please retry.',409)
+                        db.execute('INSERT INTO reservation_items VALUES (?,?,?,?,?,?,?)',
+                                   (new_id(),booking['id'],batch['id'],take,'RESERVED',utc_now(),utc_now()))
+                        left -= take
+                    if not left:
+                        break
+                expiry = booking['expires_at'] or (datetime.now(timezone.utc)+timedelta(minutes=int(settings['reservation_minutes']))).isoformat()
+                db.execute('UPDATE bookings SET reserved_quantity=reserved_quantity+?,expires_at=?,updated_at=? WHERE id=?',
+                           (quantity,expiry,utc_now(),booking['id']))
+                booking['reserved_quantity'] += quantity
+                booking['expires_at'] = expiry
+                self.audit(db,SYSTEM,'STOCK_RESERVED',booking['id'],current={'quantity':quantity,'location':booking['location_id'],'expires_at':expiry})
+            unfilled = booking['quantity'] - booking['reserved_quantity'] - booking['fulfilled_quantity']
+            if not unfilled:
+                self.transition(db,booking,'RESERVED',SYSTEM,'Stock reserved for collection.')
+                if db.execute("SELECT 1 FROM waitlist WHERE booking_id=? AND state='ACTIVE'",(booking['id'],)).fetchone():
+                    db.execute('UPDATE waitlist SET promoted_at=? WHERE booking_id=?',(utc_now(),booking['id']))
+                    self._close_waitlist(db,booking['id'],'PROMOTED')
+            else:
+                state = 'PARTIALLY_RESERVED' if booking['reserved_quantity'] else 'WAITLISTED'
+                self.transition(db,booking,state,SYSTEM,'Waiting for additional eligible stock.')
+                if quantity and booking['status'] == 'PARTIALLY_RESERVED':
+                    self.notify(db,booking,'PARTIALLY_RESERVED')
+                entry = db.execute('SELECT * FROM waitlist WHERE booking_id=?',(booking['id'],)).fetchone()
+                if not entry:
+                    timestamp = utc_now()
+                    db.execute('INSERT INTO waitlist VALUES (?,?,\'ACTIVE\',?,NULL,?)',(new_id(),booking['id'],timestamp,timestamp))
+                    self.audit(db,SYSTEM,'WAITLIST_ENTERED',booking['id'],current='ACTIVE')
+                elif entry['state'] != 'ACTIVE':
+                    db.execute("UPDATE waitlist SET state='ACTIVE',updated_at=? WHERE id=?",(utc_now(),entry['id']))
+                    self.audit(db,SYSTEM,'WAITLIST_ENTERED',booking['id'],entry['state'],'ACTIVE')
 
-__all__ = [
-    "ACTIVE_BOOKING_STATES", "Allocation", "AllocationOutcome",
-    "BookingOutcome", "BookingPolicy", "BookingService", "DuplicateAction",
-    "DuplicateMatch",
-]
+    def update_booking(self, actor, booking_id, action, payload):
+        if action == 'cancel':
+            require_role(actor,'PATIENT','PHARMACIST')
+        else:
+            require_role(actor,'PHARMACIST')
+        with self.database.transaction() as db:
+            self._reconcile(db)
+            booking = self.find_booking(db,booking_id,actor)
+            if booking['status'] in TERMINAL_STATES:
+                raise AppError('This booking is already closed.',409)
+            if action == 'cancel':
+                validate_fields(payload,set())
+                self._release(db,booking,actor,'Booking cancelled.')
+                self.transition(db,booking,'CANCELLED',actor,'Cancelled by an authorized user.')
+                self._close_waitlist(db,booking_id,'CANCELLED')
+            elif action == 'override':
+                validate_fields(payload,{'rank','reason'},{'rank','reason'})
+                if booking['status'] not in {'WAITLISTED','PARTIALLY_RESERVED'}:
+                    raise AppError('Only a waiting request can receive a priority override.',409)
+                rank = validate_integer(payload['rank'],'Override rank',maximum=10000)
+                reason = validate_text(payload['reason'],'override reason',500)
+                db.execute('UPDATE bookings SET override_rank=?,override_reason=?,updated_at=? WHERE id=?',(rank,reason,utc_now(),booking_id))
+                self.audit(db,actor,'PRIORITY_OVERRIDE',booking_id,{'rank':booking['override_rank']},{'rank':rank},reason)
+            elif action == 'ready':
+                validate_fields(payload,set())
+                if booking['status'] != 'RESERVED':
+                    raise AppError('Reserve the full remaining quantity before marking it ready.',409)
+                self.transition(db,booking,'READY',actor,'Ready for collection.')
+            elif action == 'fulfil':
+                validate_fields(payload,set())
+                if booking['status'] != 'READY':
+                    raise AppError('Mark the reservation ready before fulfilment.',409)
+                items = db.execute("SELECT * FROM reservation_items WHERE booking_id=? AND state='RESERVED'",(booking_id,)).fetchall()
+                if not items or sum(x['quantity'] for x in items) != booking['reserved_quantity']:
+                    raise AppError('The reservation requires review.',409)
+                for item in items:
+                    db.execute('UPDATE inventory SET on_hand=on_hand-?,reserved=reserved-?,updated_at=? WHERE id=?',
+                               (item['quantity'],item['quantity'],utc_now(),item['inventory_id']))
+                db.execute("UPDATE reservation_items SET state='FULFILLED',updated_at=? WHERE booking_id=? AND state='RESERVED'",(utc_now(),booking_id))
+                db.execute('UPDATE bookings SET fulfilled_quantity=fulfilled_quantity+reserved_quantity,reserved_quantity=0,expires_at=NULL,updated_at=? WHERE id=?',(utc_now(),booking_id))
+                self.transition(db,booking,'FULFILLED',actor,'Collected at the pharmacy.')
+                self._close_waitlist(db,booking_id,'FULFILLED')
+            else:
+                raise AppError('Action not found.',404)
+            self._allocate(db)
+
+    def restock(self, actor, payload):
+        require_role(actor,'PHARMACIST')
+        validate_fields(payload,{'event_id','medicine_code','quantity','batch','expires_on','location_id'},
+                        {'event_id','medicine_code','quantity','batch','expires_on'})
+        event_id = validate_text(payload['event_id'],'event identifier',100)
+        code = validate_text(payload['medicine_code'],'medicine code',40)
+        quantity = validate_integer(payload['quantity'],'Restock quantity')
+        batch = validate_text(payload['batch'],'batch identifier',80)
+        expiry = validate_date(payload['expires_on'],'batch expiry')
+        location = payload.get('location_id','MAIN')
+        if expiry < date.today().isoformat() or location != 'MAIN':
+            raise AppError('Choose an unexpired batch and a configured location.')
+        normalized = json.dumps({'medicine_code':code,'quantity':quantity,'batch':batch,'expires_on':expiry,'location_id':location},sort_keys=True)
+        with self.database.transaction() as db:
+            previous = db.execute('SELECT * FROM restock_events WHERE event_id=?',(event_id,)).fetchone()
+            if previous:
+                if previous['payload'] != normalized:
+                    raise AppError('This event identifier was used for a different restock.',409)
+                return previous['inventory_id']
+            if not db.execute('SELECT 1 FROM medicines WHERE code=?',(code,)).fetchone():
+                raise AppError('Medicine not found.',404)
+            inventory = db.execute('SELECT * FROM inventory WHERE medicine_code=? AND location_id=? AND batch=?',(code,location,batch)).fetchone()
+            inventory_id = inventory['id'] if inventory else new_id()
+            if inventory:
+                if inventory['expires_on'] != expiry or inventory['state'] != 'IN_STOCK':
+                    raise AppError('The existing batch has different expiry details or is blocked.',409)
+                db.execute('UPDATE inventory SET on_hand=on_hand+?,updated_at=? WHERE id=?',(quantity,utc_now(),inventory_id))
+            else:
+                db.execute('INSERT INTO inventory VALUES (?,?,?,?,?,?,?,0,?)',(inventory_id,code,location,batch,expiry,'IN_STOCK',quantity,utc_now()))
+            db.execute('INSERT INTO restock_events VALUES (?,?,?,?)',(event_id,normalized,inventory_id,utc_now()))
+            self.audit(db,actor,'INVENTORY_RESTOCKED',inventory_id,current=json.loads(normalized))
+            self._reconcile(db)
+        return inventory_id
+
+    def update_inventory(self, actor, inventory_id, payload):
+        require_role(actor,'PHARMACIST')
+        validate_fields(payload,{'state','reason'},{'state','reason'})
+        if payload['state'] not in INVENTORY_STATES:
+            raise AppError('Choose a valid inventory state.')
+        reason = validate_text(payload['reason'],'stock-change reason',500)
+        with self.database.transaction() as db:
+            item = db.execute('SELECT * FROM inventory WHERE id=?',(inventory_id,)).fetchone()
+            if not item:
+                raise AppError('Inventory batch not found.',404)
+            if payload['state']=='IN_STOCK' and item['expires_on']<date.today().isoformat():
+                raise AppError('Expired batches cannot be returned to available stock.')
+            db.execute('UPDATE inventory SET state=?,updated_at=? WHERE id=?',(payload['state'],utc_now(),inventory_id))
+            self.audit(db,actor,'INVENTORY_STATE_CHANGED',inventory_id,item['state'],payload['state'],reason)
+            self._reconcile(db)
+
+    def update_settings(self, actor, payload):
+        require_role(actor,'MANAGER')
+        validate_fields(payload,{'reservation_minutes','partial_allocation'},{'reservation_minutes','partial_allocation'})
+        minutes = validate_integer(payload['reservation_minutes'],'Reservation duration',maximum=10080)
+        if type(payload['partial_allocation']) is not bool:
+            raise AppError('Partial allocation must be true or false.')
+        with self.database.transaction() as db:
+            previous = dict(db.execute('SELECT key,value FROM settings').fetchall())
+            db.execute("UPDATE settings SET value=? WHERE key='reservation_minutes'",(str(minutes),))
+            db.execute("UPDATE settings SET value=? WHERE key='partial_allocation'",(str(payload['partial_allocation']).lower(),))
+            self.audit(db,actor,'POLICY_UPDATED','settings',previous,payload,'Manager updated allocation settings.')
+            self._reconcile(db)
+
+    def reconcile(self):
+        with self.database.transaction() as db:
+            self._reconcile(db)
+
+    def get_document(self, actor, prescription_id):
+        with self.database.transaction() as db:
+            prescription = db.execute('SELECT patient_id,filename,document FROM prescriptions WHERE id=?',(prescription_id,)).fetchone()
+            if not prescription:
+                raise AppError('Document not found.',404)
+            require_owner(actor,prescription['patient_id'])
+            if not prescription['document']:
+                raise AppError('This prescription has no attached document.',404)
+            self.audit(db,actor,'PRESCRIPTION_DOCUMENT_VIEWED',prescription_id)
+            return prescription['filename'],prescription['document']
+
+    def snapshot(self, actor):
+        with self.database.transaction() as db:
+            patient = actor['role']=='PATIENT'
+            where = ' WHERE patient_id=?' if patient else ''
+            args = (actor['id'],) if patient else ()
+            prescriptions = [dict(r) for r in db.execute('''SELECT id,patient_id,source,source_identifier,status,authored_on,
+                expires_on,prescriber,reason,urgency,continuity,verified_by,verified_at,consent_reference,
+                restricted_approved,filename,created_at,updated_at FROM prescriptions''' + where + ' ORDER BY created_at DESC',args)]
+            for prescription in prescriptions:
+                prescription['medicines']=[dict(r) for r in db.execute('''SELECT r.*,m.name,m.strength FROM medication_requests r
+                    JOIN medicines m ON m.code=r.medicine_code WHERE r.prescription_id=?''',(prescription['id'],))]
+                if patient:
+                    for key in ('urgency','continuity','verified_by','restricted_approved','consent_reference'):
+                        prescription.pop(key,None)
+            bookings = [dict(r) for r in db.execute(BOOKING_QUERY + (' WHERE b.patient_id=?' if patient else '')+' ORDER BY b.created_at DESC',args)]
+            for booking in bookings:
+                booking['remaining_quantity']=booking['quantity']-booking['reserved_quantity']-booking['fulfilled_quantity']
+                if patient:
+                    for key in ('urgency','continuity','priority_rank','priority_reasons','override_rank','override_reason','verified_by','restricted_approved','patient_name','category'):
+                        booking.pop(key,None)
+                else:
+                    booking['priority_reasons']=json.loads(booking['priority_reasons'])
+                    booking['reservations']=[dict(r) for r in db.execute('''SELECT r.quantity,r.state,i.batch,i.expires_on,i.location_id
+                        FROM reservation_items r JOIN inventory i ON i.id=r.inventory_id WHERE r.booking_id=?''',(booking['id'],))]
+            inventory=[dict(r) for r in db.execute('''SELECT i.*,m.name,m.strength,m.category,
+                CASE WHEN i.state='IN_STOCK' AND i.expires_on>=? THEN i.on_hand-i.reserved ELSE 0 END AS available
+                FROM inventory i JOIN medicines m ON m.code=i.medicine_code ORDER BY m.name,i.expires_on''',(date.today().isoformat(),))]
+            notifications=[dict(r) for r in db.execute('SELECT * FROM notifications'+where+' ORDER BY created_at DESC LIMIT 200',args)]
+            result={'user':{k:actor[k] for k in ('id','name','email','role')},'csrf':actor.get('csrf',''),
+                    'medicines':[dict(r) for r in db.execute('SELECT * FROM medicines ORDER BY name')],
+                    'prescriptions':prescriptions,'bookings':bookings,'notifications':notifications,
+                    'settings':dict(db.execute('SELECT key,value FROM settings').fetchall()),'policy_version':POLICY_VERSION}
+            if patient:
+                result['availability']={medicine['code']:sum(item['available'] for item in inventory if item['medicine_code']==medicine['code']) for medicine in result['medicines']}
+            else:
+                result['inventory']=inventory
+                result['waitlist']=[dict(r) for r in db.execute('''SELECT w.*,b.request_id,b.location_id,b.priority_rank,r.medicine_code,
+                    b.quantity-b.reserved_quantity-b.fulfilled_quantity AS remaining_quantity
+                    FROM waitlist w JOIN bookings b ON b.id=w.booking_id JOIN medication_requests r ON r.id=b.request_id
+                    WHERE w.state='ACTIVE' ORDER BY r.medicine_code,b.priority_rank''')]
+                result['patients']=[dict(r) for r in db.execute("SELECT id,name FROM users WHERE role='PATIENT' ORDER BY name")]
+                result['audit']=[dict(r) for r in db.execute('SELECT * FROM audit ORDER BY sequence DESC LIMIT 200')]
+            return result
