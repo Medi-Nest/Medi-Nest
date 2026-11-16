@@ -1,0 +1,530 @@
+{
+  "project": "MediNest:Priority-Based Medicine Booking and Allocation Module for Pharma Apps",
+  "projectId": 47,
+  "recordDate": "2026-11-16",
+  "timezone": "Asia/Kolkata",
+  "site": "https://jigexams.atlassian.net",
+  "boardId": 35,
+  "sprints": [
+    {
+      "id": 34,
+      "state": "active",
+      "name": "Week 1: Foundations",
+      "startDate": "2026-10-13T04:25:37.000Z",
+      "endDate": "2026-10-20T04:30:00.000Z",
+      "originBoardId": 35,
+      "goal": "Build the core data model, integration boundaries, access controls, and validated prescription intake."
+    },
+    {
+      "id": 35,
+      "state": "future",
+      "name": "Week 2: Booking & Priority",
+      "startDate": "2026-10-20T04:30:00.000Z",
+      "endDate": "2026-10-27T04:30:00.000Z",
+      "originBoardId": 35,
+      "goal": "Deliver prescription context, booking lifecycle, explainable priority, and patient booking/status flows."
+    },
+    {
+      "id": 36,
+      "state": "future",
+      "name": "Week 3: Allocation & Waitlist",
+      "startDate": "2026-10-27T04:30:00.000Z",
+      "endDate": "2026-11-03T04:30:00.000Z",
+      "originBoardId": 35,
+      "goal": "Implement safe stock reservation, waitlist ordering/promotion, pharmacist operations, and notifications."
+    },
+    {
+      "id": 37,
+      "state": "future",
+      "name": "Week 4: Hardening & Demo",
+      "startDate": "2026-11-03T04:30:00.000Z",
+      "endDate": "2026-11-07T18:29:00.000Z",
+      "originBoardId": 35,
+      "goal": "Close safety, reliability, privacy, audit, traceability, integration validation, and demo readiness by Nov 7."
+    }
+  ],
+  "issues": [
+    {
+      "key": "MBA-1",
+      "summary": "Prescription Intake & Patient Context",
+      "type": "Epic",
+      "assignee": null,
+      "currentStatus": "Done",
+      "created": "2026-10-13T09:53:03.830+0530"
+    },
+    {
+      "key": "MBA-2",
+      "summary": "Priority-Based Medicine Booking",
+      "type": "Epic",
+      "assignee": null,
+      "currentStatus": "Done",
+      "created": "2026-10-13T09:53:06.285+0530"
+    },
+    {
+      "key": "MBA-3",
+      "summary": "Inventory Allocation & Waitlist Management",
+      "type": "Epic",
+      "assignee": null,
+      "currentStatus": "Done",
+      "created": "2026-10-13T09:53:08.369+0530"
+    },
+    {
+      "key": "MBA-4",
+      "summary": "Pharmacist Operations, Notifications & Audit",
+      "type": "Epic",
+      "assignee": null,
+      "currentStatus": "Done",
+      "created": "2026-10-13T09:53:10.369+0530"
+    },
+    {
+      "key": "MBA-5",
+      "summary": "Secure Integrations, Safety & Release Readiness",
+      "type": "Epic",
+      "assignee": null,
+      "currentStatus": "Done",
+      "created": "2026-10-13T09:53:12.305+0530"
+    },
+    {
+      "key": "MBA-6",
+      "summary": "Define core prescription and medicine-request data models",
+      "type": "Task",
+      "assignee": "Jignas",
+      "currentStatus": "Done",
+      "created": "2026-10-13T09:53:46.447+0530",
+      "historyComplete": true,
+      "statusChanges": [
+        {
+          "created": "2026-11-15T10:38:08.674+0530",
+          "from": "To Do",
+          "to": "Done"
+        },
+        {
+          "created": "2026-11-16T19:56:22.275+0530",
+          "from": "Done",
+          "to": "Done"
+        }
+      ],
+      "sprintChanges": [
+        {
+          "created": "2026-10-13T09:53:47.940+0530",
+          "from": "",
+          "to": "Week 1: Foundations",
+          "sprintId": "34"
+        }
+      ]
+    },
+    {
+      "key": "MBA-7",
+      "summary": "Implement prescription upload validation and manual-review states",
+      "type": "Task",
+      "assignee": "Namit Krishna Renjith",
+      "currentStatus": "Done",
+      "created": "2026-10-13T09:53:49.665+0530",
+      "historyComplete": true,
+      "statusChanges": [
+        {
+          "created": "2026-11-14T23:46:25.185+0530",
+          "from": "To Do",
+          "to": "Done"
+        },
+        {
+          "created": "2026-11-16T19:56:22.815+0530",
+          "from": "Done",
+          "to": "Done"
+        }
+      ],
+      "sprintChanges": [
+        {
+          "created": "2026-10-13T09:53:51.022+0530",
+          "from": "",
+          "to": "Week 1: Foundations",
+          "sprintId": "34"
+        }
+      ]
+    },
+    {
+      "key": "MBA-8",
+      "summary": "Define external service contracts and mock adapters",
+      "type": "Task",
+      "assignee": "Mrudul",
+      "currentStatus": "Done",
+      "created": "2026-10-13T09:53:52.570+0530",
+      "historyComplete": true,
+      "statusChanges": [
+        {
+          "created": "2026-11-16T19:56:23.163+0530",
+          "from": "To Do",
+          "to": "Done"
+        }
+      ],
+      "sprintChanges": [
+        {
+          "created": "2026-10-13T09:53:53.912+0530",
+          "from": "",
+          "to": "Week 1: Foundations",
+          "sprintId": "34"
+        }
+      ]
+    },
+    {
+      "key": "MBA-9",
+      "summary": "Enforce role-based access and protect patient data",
+      "type": "Task",
+      "assignee": "Mayank Kedia",
+      "currentStatus": "Done",
+      "created": "2026-10-13T09:53:55.915+0530",
+      "historyComplete": true,
+      "statusChanges": [
+        {
+          "created": "2026-11-16T19:56:23.692+0530",
+          "from": "To Do",
+          "to": "Done"
+        }
+      ],
+      "sprintChanges": [
+        {
+          "created": "2026-10-13T09:53:57.397+0530",
+          "from": "",
+          "to": "Week 1: Foundations",
+          "sprintId": "34"
+        }
+      ]
+    },
+    {
+      "key": "MBA-10",
+      "summary": "Add structured e-prescription import and schema mapping",
+      "type": "Task",
+      "assignee": "Namit Krishna Renjith",
+      "currentStatus": "Done",
+      "created": "2026-10-13T09:53:59.015+0530",
+      "historyComplete": true,
+      "statusChanges": [
+        {
+          "created": "2026-11-14T23:46:22.586+0530",
+          "from": "To Do",
+          "to": "Done"
+        }
+      ],
+      "sprintChanges": [
+        {
+          "created": "2026-10-13T09:54:00.309+0530",
+          "from": "",
+          "to": "Week 2: Booking & Priority",
+          "sprintId": "35"
+        }
+      ]
+    },
+    {
+      "key": "MBA-11",
+      "summary": "Retrieve minimal patient context with consent and UNKNOWN fallback",
+      "type": "Task",
+      "assignee": "Mrudul",
+      "currentStatus": "Done",
+      "created": "2026-10-13T09:54:02.033+0530",
+      "historyComplete": true,
+      "statusChanges": [
+        {
+          "created": "2026-11-16T19:56:24.022+0530",
+          "from": "To Do",
+          "to": "Done"
+        }
+      ],
+      "sprintChanges": [
+        {
+          "created": "2026-10-13T09:54:03.422+0530",
+          "from": "",
+          "to": "Week 2: Booking & Priority",
+          "sprintId": "35"
+        }
+      ]
+    },
+    {
+      "key": "MBA-12",
+      "summary": "Create and track eligible medicine bookings",
+      "type": "Story",
+      "assignee": "Mayank Kedia",
+      "currentStatus": "Done",
+      "created": "2026-10-13T09:54:04.927+0530",
+      "historyComplete": true,
+      "statusChanges": [
+        {
+          "created": "2026-11-16T19:56:24.323+0530",
+          "from": "To Do",
+          "to": "Done"
+        }
+      ],
+      "sprintChanges": [
+        {
+          "created": "2026-10-13T09:54:06.296+0530",
+          "from": "",
+          "to": "Week 2: Booking & Priority",
+          "sprintId": "35"
+        }
+      ]
+    },
+    {
+      "key": "MBA-13",
+      "summary": "Implement explainable and deterministic booking priority",
+      "type": "Task",
+      "assignee": "Jignas",
+      "currentStatus": "Done",
+      "created": "2026-10-13T09:54:07.713+0530",
+      "historyComplete": true,
+      "statusChanges": [
+        {
+          "created": "2026-11-15T10:38:09.173+0530",
+          "from": "To Do",
+          "to": "Done"
+        }
+      ],
+      "sprintChanges": [
+        {
+          "created": "2026-10-13T09:54:09.134+0530",
+          "from": "",
+          "to": "Week 2: Booking & Priority",
+          "sprintId": "35"
+        }
+      ]
+    },
+    {
+      "key": "MBA-14",
+      "summary": "Build patient booking, status, and waitlist views",
+      "type": "Story",
+      "assignee": "Mayank Kedia",
+      "currentStatus": "Done",
+      "created": "2026-10-13T09:54:10.739+0530",
+      "historyComplete": true,
+      "statusChanges": [
+        {
+          "created": "2026-11-16T19:56:24.610+0530",
+          "from": "To Do",
+          "to": "Done"
+        }
+      ],
+      "sprintChanges": [
+        {
+          "created": "2026-10-13T09:54:12.253+0530",
+          "from": "",
+          "to": "Week 2: Booking & Priority",
+          "sprintId": "35"
+        }
+      ]
+    },
+    {
+      "key": "MBA-15",
+      "summary": "Build concurrency-safe inventory reservation service",
+      "type": "Task",
+      "assignee": "Namit Krishna Renjith",
+      "currentStatus": "Done",
+      "created": "2026-10-13T09:54:33.570+0530",
+      "historyComplete": true,
+      "statusChanges": [
+        {
+          "created": "2026-11-14T23:46:19.833+0530",
+          "from": "To Do",
+          "to": "Done"
+        }
+      ],
+      "sprintChanges": [
+        {
+          "created": "2026-10-13T09:54:35.265+0530",
+          "from": "",
+          "to": "Week 3: Allocation & Waitlist",
+          "sprintId": "36"
+        }
+      ]
+    },
+    {
+      "key": "MBA-16",
+      "summary": "Implement ordered waitlists and stock-restock promotion",
+      "type": "Task",
+      "assignee": "Jignas",
+      "currentStatus": "Done",
+      "created": "2026-10-13T09:54:36.876+0530",
+      "historyComplete": true,
+      "statusChanges": [
+        {
+          "created": "2026-11-15T10:38:09.486+0530",
+          "from": "To Do",
+          "to": "Done"
+        }
+      ],
+      "sprintChanges": [
+        {
+          "created": "2026-10-13T09:54:38.325+0530",
+          "from": "",
+          "to": "Week 3: Allocation & Waitlist",
+          "sprintId": "36"
+        }
+      ]
+    },
+    {
+      "key": "MBA-17",
+      "summary": "Handle reservation expiry, cancellation, and partial allocation",
+      "type": "Task",
+      "assignee": "Mayank Kedia",
+      "currentStatus": "Done",
+      "created": "2026-10-13T09:54:39.922+0530",
+      "historyComplete": true,
+      "statusChanges": [
+        {
+          "created": "2026-11-16T19:56:24.978+0530",
+          "from": "To Do",
+          "to": "Done"
+        }
+      ],
+      "sprintChanges": [
+        {
+          "created": "2026-10-13T09:54:41.751+0530",
+          "from": "",
+          "to": "Week 3: Allocation & Waitlist",
+          "sprintId": "36"
+        }
+      ]
+    },
+    {
+      "key": "MBA-18",
+      "summary": "Build pharmacist review and documented override workflow",
+      "type": "Task",
+      "assignee": "Namit Krishna Renjith",
+      "currentStatus": "Done",
+      "created": "2026-10-13T09:54:43.374+0530",
+      "historyComplete": true,
+      "statusChanges": [
+        {
+          "created": "2026-11-14T23:46:17.704+0530",
+          "from": "To Do",
+          "to": "Done"
+        }
+      ],
+      "sprintChanges": [
+        {
+          "created": "2026-10-13T09:54:44.784+0530",
+          "from": "",
+          "to": "Week 3: Allocation & Waitlist",
+          "sprintId": "36"
+        }
+      ]
+    },
+    {
+      "key": "MBA-19",
+      "summary": "Send booking, waitlist, reservation, and cancellation notifications",
+      "type": "Task",
+      "assignee": "Mrudul",
+      "currentStatus": "Done",
+      "created": "2026-10-13T09:54:46.563+0530",
+      "historyComplete": true,
+      "statusChanges": [
+        {
+          "created": "2026-11-16T19:56:25.242+0530",
+          "from": "To Do",
+          "to": "Done"
+        }
+      ],
+      "sprintChanges": [
+        {
+          "created": "2026-10-13T09:54:48.229+0530",
+          "from": "",
+          "to": "Week 3: Allocation & Waitlist",
+          "sprintId": "36"
+        }
+      ]
+    },
+    {
+      "key": "MBA-20",
+      "summary": "Create pharmacy manager audit and fulfilment overview",
+      "type": "Task",
+      "assignee": "Mayank Kedia",
+      "currentStatus": "Done",
+      "created": "2026-10-13T09:54:49.779+0530",
+      "historyComplete": true,
+      "statusChanges": [
+        {
+          "created": "2026-11-16T19:56:25.534+0530",
+          "from": "To Do",
+          "to": "Done"
+        }
+      ],
+      "sprintChanges": [
+        {
+          "created": "2026-10-13T09:54:51.132+0530",
+          "from": "",
+          "to": "Week 4: Hardening & Demo",
+          "sprintId": "37"
+        }
+      ]
+    },
+    {
+      "key": "MBA-21",
+      "summary": "Enforce safety boundaries and allocation business rules",
+      "type": "Task",
+      "assignee": "Jignas",
+      "currentStatus": "Done",
+      "created": "2026-10-13T09:54:52.682+0530",
+      "historyComplete": true,
+      "statusChanges": [
+        {
+          "created": "2026-11-15T10:38:09.810+0530",
+          "from": "To Do",
+          "to": "Done"
+        }
+      ],
+      "sprintChanges": [
+        {
+          "created": "2026-10-13T09:54:54.168+0530",
+          "from": "",
+          "to": "Week 4: Hardening & Demo",
+          "sprintId": "37"
+        }
+      ]
+    },
+    {
+      "key": "MBA-22",
+      "summary": "Validate performance, reliability, and failure recovery",
+      "type": "Task",
+      "assignee": "Namit Krishna Renjith",
+      "currentStatus": "Done",
+      "created": "2026-10-13T09:54:55.969+0530",
+      "historyComplete": true,
+      "statusChanges": [
+        {
+          "created": "2026-11-14T23:46:14.070+0530",
+          "from": "To Do",
+          "to": "Done"
+        }
+      ],
+      "sprintChanges": [
+        {
+          "created": "2026-10-13T09:54:57.413+0530",
+          "from": "",
+          "to": "Week 4: Hardening & Demo",
+          "sprintId": "37"
+        }
+      ]
+    },
+    {
+      "key": "MBA-23",
+      "summary": "Complete SRS traceability, end-to-end validation, and demo readiness",
+      "type": "Task",
+      "assignee": "Mrudul",
+      "currentStatus": "Done",
+      "created": "2026-10-13T09:54:59.038+0530",
+      "historyComplete": true,
+      "statusChanges": [
+        {
+          "created": "2026-11-16T19:56:25.823+0530",
+          "from": "To Do",
+          "to": "Done"
+        }
+      ],
+      "sprintChanges": [
+        {
+          "created": "2026-10-13T09:55:00.387+0530",
+          "from": "",
+          "to": "Week 4: Hardening & Demo",
+          "sprintId": "37"
+        }
+      ]
+    }
+  ]
+}

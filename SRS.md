@@ -8,7 +8,7 @@
 
 # Software Requirements Specification
 
-## Priority-Based Medicine Booking and Allocation Module for Pharma Apps
+## MediNest:Priority-Based Medicine Booking and Allocation Module for Pharma Apps
 
 **Project ID:** 47  
 **Version:** 1.0

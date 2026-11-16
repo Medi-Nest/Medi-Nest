@@ -1,5 +1,6 @@
 """Prototype timing checks against the SRS response-time targets."""
 import json
+import math
 import time
 from test_server import HttpTestCase
 
@@ -13,7 +14,7 @@ class PerformanceTests(HttpTestCase):
             status,_,body=self.call('/api/dashboard',cookie=cookie)
             durations.append(time.perf_counter()-started)
             self.assertEqual(status,200)
-        read_p95=sorted(durations)[int(len(durations)*.95)-1]
+        read_p95=sorted(durations)[math.ceil(len(durations)*.95)-1]
         self.assertLess(read_p95,1.0)
         staff_cookie,staff_csrf=self.login('pharmacist@medinest.local')
         submission_times=[]
@@ -31,7 +32,7 @@ class PerformanceTests(HttpTestCase):
             status,_,_=self.call('/api/bookings','POST',{'request_id':request_id,'quantity':1},cookie,csrf)
             submission_times.append(time.perf_counter()-started)
             self.assertEqual(status,200)
-        submit_p95=sorted(submission_times)[int(len(submission_times)*.95)-1]
+        submit_p95=sorted(submission_times)[math.ceil(len(submission_times)*.95)-1]
         self.assertLess(submit_p95,2.0)
         started=time.perf_counter()
         status,_,_=self.call('/api/inventory/restock','POST',{'event_id':'PERF-RESTOCK','medicine_code':'MED-003',

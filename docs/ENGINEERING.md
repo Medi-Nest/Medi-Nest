@@ -1,12 +1,12 @@
 # Software Engineering Record
 
-**Project:** MediNest — Priority-Based Medicine Booking and Allocation Module
+**Project:** MediNest:Priority-Based Medicine Booking and Allocation Module for Pharma Apps
 
 **Requirements baseline:** [SRS v1.0](../SRS.md), Project ID 47
 
 **Record date:** 2026-11-16
 
-This document records the current implementation and verification approach. It does not reconstruct past sprint activity or claim approval of work that has not been reviewed. The original SRS remains the sole requirements specification; its 178 requirement statements are unchanged.
+This document records the current implementation and verification approach. Scheduled sprint ends and the final review are documented in [Sprint Retrospectives](SPRINT_RETROSPECTIVES.md). The original SRS remains the sole requirements specification; its 178 requirement statements are unchanged.
 
 ## 1. Lifecycle status
 

@@ -196,7 +196,7 @@ def markdown_report(report):
     for label, key, target in [("Status read, p95", "status_p95", 1000), ("Booking submission, p95", "booking_p95", 2000),
                                ("Restock and queue processing", "restock", 3000)]:
         rows.append(f"| {label} | {metrics.get(key, 'Not measured')} | {target} |")
-    rows += ["", "These measurements come from the uninstrumented performance test: 30 authenticated status reads, 20 sequential submissions, and one restock over the resulting small synthetic dataset. They establish local prototype behavior, not production capacity."]
+    rows += ["", "These measurements come from the uninstrumented performance test: 30 authenticated status reads, 20 sequential submissions, and one restock over the resulting small synthetic dataset. The p95 calculation uses nearest rank: ceil(0.95 * sample count). They establish local prototype behavior, not production capacity."]
     coverage = report.get("coverage")
     if coverage:
         rows += ["", "## Python line coverage", "", f"A separate traced run executed {coverage['tests_run']} non-performance tests. HTTP and allocation worker threads were included. Percentages are the standard-library tracer's rounded per-module line coverage; JavaScript and branch coverage are not measured.",

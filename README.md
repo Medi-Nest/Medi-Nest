@@ -1,6 +1,10 @@
-# MediNest
+# MediNest:Priority-Based Medicine Booking and Allocation Module for Pharma Apps
 
 A local pharmacy application for prescription review, medicine booking, stock reservation, and ordered waitlists. Requirements are maintained in the original [SRS.md](SRS.md).
+
+Project records: [Engineering](docs/ENGINEERING.md), [test report](docs/TEST_REPORT.md), and [sprint retrospectives](docs/SPRINT_RETROSPECTIVES.md).
+
+Submission files: [Combined report, separate documents and screenshots](docs/submission/README.md).
 
 ## Run locally
 

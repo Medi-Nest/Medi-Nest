@@ -1,0 +1,522 @@
+{
+  "source_revision": "1cc7c7c029efa9dd4d0956f169c8e8410b06d8f0",
+  "source_fingerprint": "d835cabb0b09ff42ce38d00b7740ce6b2fb95423a14af343881812583f9257ec",
+  "branch": "refactor/booking-platform",
+  "finished_at": "2026-11-16T16:05:31+00:00",
+  "environment": {
+    "python": "3.11.9",
+    "system": "Windows",
+    "sqlite": "3.45.1"
+  },
+  "application_status": "PASSED",
+  "tests": [
+    {
+      "id": "test_booking.BookingTests.test_additional_partial_reservation_creates_an_update",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.143774
+    },
+    {
+      "id": "test_booking.BookingTests.test_cancellation_releases_stock_and_promotes_next_request",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.148816
+    },
+    {
+      "id": "test_booking.BookingTests.test_concurrent_last_unit_is_reserved_once",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.141613
+    },
+    {
+      "id": "test_booking.BookingTests.test_duplicate_and_excess_quantity_are_rejected",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.144418
+    },
+    {
+      "id": "test_booking.BookingTests.test_expiry_releases_reserved_stock_and_promotes_waitlist",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.157498
+    },
+    {
+      "id": "test_booking.BookingTests.test_failed_transaction_leaves_no_orphan_reservation",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.107896
+    },
+    {
+      "id": "test_booking.BookingTests.test_fulfilment_consumes_inventory_and_prevents_overprescription",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.153457
+    },
+    {
+      "id": "test_booking.BookingTests.test_full_allocation_records_reservation_batch_location_and_expiry",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.111952
+    },
+    {
+      "id": "test_booking.BookingTests.test_invalid_pending_and_expired_prescriptions_cannot_allocate",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.172689
+    },
+    {
+      "id": "test_booking.BookingTests.test_invalidated_prescription_cannot_be_promoted_or_keep_reservation",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.126733
+    },
+    {
+      "id": "test_booking.BookingTests.test_lifecycle_notifications_are_scoped_and_timestamped",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.138212
+    },
+    {
+      "id": "test_booking.BookingTests.test_notification_failure_does_not_undo_reservation_and_can_retry",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.144699
+    },
+    {
+      "id": "test_booking.BookingTests.test_notification_templates_are_configurable",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.086675
+    },
+    {
+      "id": "test_booking.BookingTests.test_only_pharmacists_can_review_or_confirm_urgency",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.082891
+    },
+    {
+      "id": "test_booking.BookingTests.test_override_requires_pharmacist_reason_and_preserves_audit",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.149328
+    },
+    {
+      "id": "test_booking.BookingTests.test_partial_allocation_tracks_remaining_quantity_until_full_reservation",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.138418
+    },
+    {
+      "id": "test_booking.BookingTests.test_partial_disabled_never_reserves_insufficient_stock",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.105257
+    },
+    {
+      "id": "test_booking.BookingTests.test_partial_reservation_expiry_releases_quantity_and_closes_waitlist",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.143516
+    },
+    {
+      "id": "test_booking.BookingTests.test_password_hashes_sessions_and_expiry",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.945031
+    },
+    {
+      "id": "test_booking.BookingTests.test_patient_ownership_and_role_boundaries",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.11072
+    },
+    {
+      "id": "test_booking.BookingTests.test_prescription_intake_preserves_source_consent_links_and_validation_history",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.072365
+    },
+    {
+      "id": "test_booking.BookingTests.test_priority_ties_use_continuity_waiting_time_and_identifier_only",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.322865
+    },
+    {
+      "id": "test_booking.BookingTests.test_recall_releases_existing_reservation_and_requeues_booking",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.121647
+    },
+    {
+      "id": "test_booking.BookingTests.test_recalled_quarantined_expired_and_blocked_batches_are_excluded",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.208111
+    },
+    {
+      "id": "test_booking.BookingTests.test_restock_replay_is_idempotent_and_conflicting_replay_is_rejected",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.113145
+    },
+    {
+      "id": "test_booking.BookingTests.test_restricted_and_excluded_medicines_require_safety_review",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.187184
+    },
+    {
+      "id": "test_booking.BookingTests.test_review_change_re_evaluates_existing_waitlist",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.16039
+    },
+    {
+      "id": "test_booking.BookingTests.test_state_survives_reopening_database",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.085281
+    },
+    {
+      "id": "test_booking.BookingTests.test_structured_schema_quantity_and_duplicate_source_are_validated",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.064102
+    },
+    {
+      "id": "test_booking.BookingTests.test_upload_constraints_and_document_access",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.105701
+    },
+    {
+      "id": "test_booking.BookingTests.test_waitlist_uses_verified_urgency_continuity_and_current_policy",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.13667
+    },
+    {
+      "id": "test_performance.PerformanceTests.test_response_time_targets",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 2.766485
+    },
+    {
+      "id": "test_requirements.RequirementTests.test_functional_requirements_have_valid_test_references",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.04974
+    },
+    {
+      "id": "test_server.ServerTests.test_authentication_csrf_and_logout",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.352445
+    },
+    {
+      "id": "test_server.ServerTests.test_cross_origin_and_invalid_host_requests_are_blocked",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.003285
+    },
+    {
+      "id": "test_server.ServerTests.test_emergency_guidance_requires_configured_version",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.005903
+    },
+    {
+      "id": "test_server.ServerTests.test_http_booking_workflow",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.687128
+    },
+    {
+      "id": "test_server.ServerTests.test_malformed_json_is_rejected_before_authentication",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.002213
+    },
+    {
+      "id": "test_server.ServerTests.test_malformed_requests_return_safe_errors",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.275453
+    },
+    {
+      "id": "test_server.ServerTests.test_patient_cannot_call_staff_endpoints_or_access_other_records",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.550169
+    },
+    {
+      "id": "test_server.ServerTests.test_registration_assigns_patient_role",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.572277
+    },
+    {
+      "id": "test_server.ServerTests.test_server_refuses_an_in_use_port",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.000239
+    },
+    {
+      "id": "test_server.ServerTests.test_static_application_and_security_headers",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.139667
+    },
+    {
+      "id": "test_server.ServerTests.test_unexpected_service_error_returns_safe_message",
+      "status": "PASSED",
+      "details": "",
+      "duration_seconds": 0.298235
+    }
+  ],
+  "checks": [
+    {
+      "name": "Python compilation",
+      "command": [
+        "C:\\Users\\Jignas\\AppData\\Local\\Programs\\Python\\Python311\\python.exe",
+        "-m",
+        "compileall",
+        "-q",
+        "src",
+        "run.py",
+        "scripts"
+      ],
+      "status": "PASSED",
+      "exit_code": 0,
+      "duration_seconds": 0.146048
+    },
+    {
+      "name": "Git whitespace validation",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "status": "PASSED",
+      "exit_code": 0,
+      "duration_seconds": 0.034051
+    },
+    {
+      "name": "JavaScript syntax",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.EXE",
+        "--check",
+        "src/medicine_booking/static/app.js"
+      ],
+      "status": "PASSED",
+      "exit_code": 0,
+      "duration_seconds": 0.06195
+    },
+    {
+      "name": "Python line coverage",
+      "command": [
+        "C:\\Users\\Jignas\\AppData\\Local\\Programs\\Python\\Python311\\python.exe",
+        "C:\\Users\\Jignas\\Desktop\\se-proj\\Medi-Nest\\scripts\\verify.py",
+        "--coverage-worker",
+        "--output-dir",
+        "C:\\Users\\Jignas\\Desktop\\se-proj\\Medi-Nest\\build\\final-verification\\coverage"
+      ],
+      "status": "PASSED",
+      "exit_code": 0,
+      "duration_seconds": 14.181769
+    }
+  ],
+  "timings_ms": {
+    "status_p95": 31.9,
+    "booking_p95": 43.4,
+    "restock": 60.6
+  },
+  "coverage": {
+    "tool": "coverage.py",
+    "version": "7.17.3",
+    "tests_run": 43,
+    "successful": true,
+    "scope": "src/medicine_booking",
+    "branch": true,
+    "concurrency": [
+      "thread"
+    ],
+    "totals": {
+      "covered_lines": 717,
+      "num_statements": 803,
+      "percent_covered": 86.6046511627907,
+      "percent_covered_display": "87",
+      "missing_lines": 86,
+      "excluded_lines": 3,
+      "percent_statements_covered": 89.29016189290162,
+      "percent_statements_covered_display": "89",
+      "num_branches": 272,
+      "num_partial_branches": 48,
+      "covered_branches": 214,
+      "missing_branches": 58,
+      "percent_branches_covered": 78.67647058823529,
+      "percent_branches_covered_display": "79"
+    },
+    "modules": [
+      {
+        "module": "access.py",
+        "summary": {
+          "covered_lines": 52,
+          "num_statements": 55,
+          "percent_covered": 91.30434782608695,
+          "percent_covered_display": "91",
+          "missing_lines": 3,
+          "excluded_lines": 0,
+          "percent_statements_covered": 94.54545454545455,
+          "percent_statements_covered_display": "95",
+          "num_branches": 14,
+          "num_partial_branches": 3,
+          "covered_branches": 11,
+          "missing_branches": 3,
+          "percent_branches_covered": 78.57142857142857,
+          "percent_branches_covered_display": "79"
+        }
+      },
+      {
+        "module": "booking.py",
+        "summary": {
+          "covered_lines": 371,
+          "num_statements": 406,
+          "percent_covered": 87.63066202090593,
+          "percent_covered_display": "88",
+          "missing_lines": 35,
+          "excluded_lines": 0,
+          "percent_statements_covered": 91.37931034482759,
+          "percent_statements_covered_display": "91",
+          "num_branches": 168,
+          "num_partial_branches": 34,
+          "covered_branches": 132,
+          "missing_branches": 36,
+          "percent_branches_covered": 78.57142857142857,
+          "percent_branches_covered_display": "79"
+        }
+      },
+      {
+        "module": "domain.py",
+        "summary": {
+          "covered_lines": 28,
+          "num_statements": 31,
+          "percent_covered": 89.74358974358974,
+          "percent_covered_display": "90",
+          "missing_lines": 3,
+          "excluded_lines": 0,
+          "percent_statements_covered": 90.3225806451613,
+          "percent_statements_covered_display": "90",
+          "num_branches": 8,
+          "num_partial_branches": 1,
+          "covered_branches": 7,
+          "missing_branches": 1,
+          "percent_branches_covered": 87.5,
+          "percent_branches_covered_display": "88"
+        }
+      },
+      {
+        "module": "notifications.py",
+        "summary": {
+          "covered_lines": 31,
+          "num_statements": 33,
+          "percent_covered": 89.74358974358974,
+          "percent_covered_display": "90",
+          "missing_lines": 2,
+          "excluded_lines": 3,
+          "percent_statements_covered": 93.93939393939394,
+          "percent_statements_covered_display": "94",
+          "num_branches": 6,
+          "num_partial_branches": 2,
+          "covered_branches": 4,
+          "missing_branches": 2,
+          "percent_branches_covered": 66.66666666666667,
+          "percent_branches_covered_display": "67"
+        }
+      },
+      {
+        "module": "priority.py",
+        "summary": {
+          "covered_lines": 11,
+          "num_statements": 11,
+          "percent_covered": 100.0,
+          "percent_covered_display": "100",
+          "missing_lines": 0,
+          "excluded_lines": 0,
+          "percent_statements_covered": 100.0,
+          "percent_statements_covered_display": "100",
+          "num_branches": 2,
+          "num_partial_branches": 0,
+          "covered_branches": 2,
+          "missing_branches": 0,
+          "percent_branches_covered": 100.0,
+          "percent_branches_covered_display": "100"
+        }
+      },
+      {
+        "module": "seed.py",
+        "summary": {
+          "covered_lines": 28,
+          "num_statements": 29,
+          "percent_covered": 95.1219512195122,
+          "percent_covered_display": "95",
+          "missing_lines": 1,
+          "excluded_lines": 0,
+          "percent_statements_covered": 96.55172413793103,
+          "percent_statements_covered_display": "97",
+          "num_branches": 12,
+          "num_partial_branches": 1,
+          "covered_branches": 11,
+          "missing_branches": 1,
+          "percent_branches_covered": 91.66666666666667,
+          "percent_branches_covered_display": "92"
+        }
+      },
+      {
+        "module": "server.py",
+        "summary": {
+          "covered_lines": 167,
+          "num_statements": 209,
+          "percent_covered": 78.96678966789668,
+          "percent_covered_display": "79",
+          "missing_lines": 42,
+          "excluded_lines": 0,
+          "percent_statements_covered": 79.90430622009569,
+          "percent_statements_covered_display": "80",
+          "num_branches": 62,
+          "num_partial_branches": 7,
+          "covered_branches": 47,
+          "missing_branches": 15,
+          "percent_branches_covered": 75.80645161290323,
+          "percent_branches_covered_display": "76"
+        }
+      },
+      {
+        "module": "storage.py",
+        "summary": {
+          "covered_lines": 29,
+          "num_statements": 29,
+          "percent_covered": 100.0,
+          "percent_covered_display": "100",
+          "missing_lines": 0,
+          "excluded_lines": 0,
+          "percent_statements_covered": 100.0,
+          "percent_statements_covered_display": "100",
+          "num_branches": 0,
+          "num_partial_branches": 0,
+          "covered_branches": 0,
+          "missing_branches": 0,
+          "percent_branches_covered": 100.0,
+          "percent_branches_covered_display": "100"
+        }
+      }
+    ]
+  },
+  "submission": {
+    "filename": "47_MediNest_Project_Report.pdf",
+    "size_bytes": 3605277,
+    "sha256": "8df5bc481d43786fe1aa1a533bda23ed554e7dc68e7b6608250429d14dc5cd08",
+    "upload_status": "Submission link not supplied"
+  }
+}
