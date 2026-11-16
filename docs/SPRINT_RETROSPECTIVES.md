@@ -111,7 +111,7 @@ These are issue counts, not story points. The first recorded Done transitions oc
 ## 5 Final review
 
 **Review date:** 16 November 2026  
-**Application baseline:** `916618a`, `refactor/booking-platform`
+**Application baseline:** `1cc7c7c`, `refactor/booking-platform`
 
 | Evidence | Final recorded result |
 |---|---|
@@ -119,10 +119,11 @@ These are issue counts, not story points. The first recorded Done transitions oc
 | Jira epics | 5 of 5 Done |
 | Application tests | 44 passed; no failures or errors |
 | Separate line-coverage run | 43 non-performance tests passed |
-| Status-read p95 | 38.8 ms against a 1,000 ms target |
-| Booking-submission p95 | 47.5 ms against a 2,000 ms target |
-| Restock and queue processing | 50.0 ms against a 3,000 ms target |
-| Branch coverage | Not measured in the existing report; requires a separate measured run |
+| Status-read p95 | 31.9 ms against a 1,000 ms target |
+| Booking-submission p95 | 43.4 ms against a 2,000 ms target |
+| Restock and queue processing | 60.6 ms against a 3,000 ms target |
+| Python statement coverage | 717/803 statements (89.3%), coverage.py 7.17.3 |
+| Branch coverage | 214/272 branch destinations (78.7%), coverage.py 7.17.3 |
 | External integrations | Mocked/test interfaces; live providers not validated |
 | User acceptance | Formal acceptance not recorded |
 
@@ -140,7 +141,7 @@ These are recommendations from the record review. They are not attributed to a t
 
 | Action | Proposed owner | Completion criterion | Due point | Status |
 |---|---|---|---|---|
-| Archive the final unit/system test results and measured line/branch coverage with the submission | Paturu Naga Jignas | One reproducible evidence set and a PDF below 10 MB containing the required sections | Before final submission | In progress |
+| Archive the final unit/system test results and measured line/branch coverage with the submission | Paturu Naga Jignas | One reproducible evidence set and a PDF below 10 MB containing the required sections | Before final submission | Evidence archived; PDF prepared |
 | Review acceptance gaps and reconcile Jira sprint closure | Namit Krishna Renjith | Record acceptance decisions and remaining work; confirm the correct sprint state with the team | Before project handover | Open |
 
 Ownership is proposed for team confirmation. Existing Jira assignees in the sprint tables are recorded assignments.
