@@ -7,7 +7,6 @@ A local pharmacy application for prescription review, medicine booking, stock re
 Requires **Python 3.11 or later**. There are no third-party runtime dependencies or frontend build steps.
 
 ```powershell
-cd C:\Users\Jignas\Desktop\se-proj\Medi-Nest
 python run.py --demo
 ```
 
