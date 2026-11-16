@@ -114,6 +114,18 @@ tests/                       Service, HTTP, and performance tests
 
 ## Validation
 
+The [engineering record](docs/ENGINEERING.md) covers lifecycle status, architecture, design decisions, the test plan, acceptance activities and open risks. The [verification report](docs/TEST_REPORT.md) records the latest measured local results.
+
+Run the complete evidence-producing verification command:
+
+```powershell
+python scripts/verify.py --coverage --report docs/TEST_REPORT.md
+```
+
+It creates JUnit XML, structured results, logs and Python line coverage under `build/verification/`, plus the reviewable report. A GitHub Actions workflow is configured to run the checks on Windows and Ubuntu after publication; no CI run is claimed before that happens.
+
+Individual checks remain available:
+
 ```powershell
 python -m unittest discover -s tests -v
 python -m compileall -q src run.py

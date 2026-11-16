@@ -1,10 +1,12 @@
 """HTTP tests for authentication, CSRF, role boundaries and safe responses."""
 import http.client
 import json
+import os
 import sys
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'src'))
@@ -27,13 +29,14 @@ class HttpTestCase(unittest.TestCase):
         cls.thread.join()
         cls.directory.cleanup()
 
-    def call(self,path,method='GET',payload=None,cookie='',csrf='',extra=None):
+    def call(self,path,method='GET',payload=None,cookie='',csrf='',extra=None,raw_body=None):
         connection=http.client.HTTPConnection('127.0.0.1',self.server.server_port,timeout=10)
         headers={'Cookie':cookie,'X-CSRF-Token':csrf}
-        if payload is not None:
+        if payload is not None or raw_body is not None:
             headers.update({'Content-Type':'application/json','X-Requested-With':'MediNest'})
         headers.update(extra or {})
-        connection.request(method,path,body=json.dumps(payload) if payload is not None else None,headers=headers)
+        body=raw_body if raw_body is not None else json.dumps(payload) if payload is not None else None
+        connection.request(method,path,body=body,headers=headers)
         response=connection.getresponse()
         body=response.read()
         result=(response.status,dict(response.getheaders()),body)
@@ -43,6 +46,9 @@ class HttpTestCase(unittest.TestCase):
     def login(self,email='patient@medinest.local'):
         status,headers,body=self.call('/api/auth/login','POST',{'email':email,'password':DEMO_PASSWORD})
         self.assertEqual(status,200)
+        self.assertIn('HttpOnly',headers['Set-Cookie'])
+        self.assertIn('SameSite=Strict',headers['Set-Cookie'])
+        self.assertIn('Max-Age=',headers['Set-Cookie'])
         return headers['Set-Cookie'].split(';')[0],json.loads(body)['csrf']
 
 
@@ -103,6 +109,49 @@ class ServerTests(HttpTestCase):
         self.assertEqual(status,400)
         self.assertNotIn('Traceback',body.decode())
         self.assertEqual(self.call('/api/config',method='POST',payload={},extra={'X-Requested-With':''})[0],403)
+
+    def test_registration_assigns_patient_role(self):
+        payload={'name':'Registration Test','email':'registration@example.test','password':'TestPassword123'}
+        status,headers,body=self.call('/api/auth/register','POST',payload)
+        self.assertEqual(status,200)
+        cookie=headers['Set-Cookie'].split(';')[0]
+        data=json.loads(self.call('/api/dashboard',cookie=cookie)[2])
+        self.assertEqual(data['user']['role'],'PATIENT')
+        self.assertEqual(data['prescriptions'],[])
+        status,_,_=self.call('/api/auth/register','POST',{**payload,'email':'escalation@example.test','role':'PHARMACIST'})
+        self.assertEqual(status,400)
+
+    def test_malformed_json_is_rejected_before_authentication(self):
+        for body in ('{"email":', '[]'):
+            with self.subTest(body=body):
+                status,_,response=self.call('/api/auth/login','POST',raw_body=body)
+                self.assertEqual(status,400)
+                self.assertNotIn('Traceback',response.decode())
+
+    def test_unexpected_service_error_returns_safe_message(self):
+        cookie,_=self.login()
+        with self.assertLogs(level='ERROR') as messages:
+            with patch.object(self.server.app.bookings,'snapshot',side_effect=RuntimeError('sensitive internal detail')):
+                status,_,body=self.call('/api/dashboard',cookie=cookie)
+        self.assertEqual(status,500)
+        self.assertNotIn('sensitive internal detail',body.decode())
+        self.assertNotIn('Traceback',body.decode())
+        self.assertNotIn('sensitive internal detail',' '.join(messages.output))
+
+    def test_emergency_guidance_requires_configured_version(self):
+        with patch.dict(os.environ,{'MEDINEST_EMERGENCY_GUIDANCE':'Approved test guidance.',
+                                    'MEDINEST_EMERGENCY_GUIDANCE_VERSION':''}):
+            data=json.loads(self.call('/api/config')[2])
+            self.assertEqual(data['emergency_guidance'],'')
+        with patch.dict(os.environ,{'MEDINEST_EMERGENCY_GUIDANCE':'Approved test guidance.',
+                                    'MEDINEST_EMERGENCY_GUIDANCE_VERSION':'TEST-1'}):
+            data=json.loads(self.call('/api/config')[2])
+            self.assertEqual(data['emergency_guidance'],'Approved test guidance.')
+            self.assertEqual(data['guidance_version'],'TEST-1')
+
+    def test_server_refuses_an_in_use_port(self):
+        with self.assertRaises(OSError):
+            create_server(Path(self.directory.name)/'collision.db',port=self.server.server_port)
 
 
 if __name__=='__main__':unittest.main()

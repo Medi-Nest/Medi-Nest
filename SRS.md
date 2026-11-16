@@ -1478,6 +1478,8 @@ The original requirements in Sections 1–7 and the field layouts in Appendices 
 
 Run `python -m unittest discover -s tests -v`. The following references are methods in `tests/test_booking.py` unless otherwise stated.
 
+The implementation design and lifecycle test plan are recorded in [docs/ENGINEERING.md](docs/ENGINEERING.md). Measured execution results are retained in [docs/TEST_REPORT.md](docs/TEST_REPORT.md) and can be reproduced with `python scripts/verify.py --coverage --report docs/TEST_REPORT.md`.
+
 | Requirement | Implementation | Test reference | Scope |
 |---|---|---|---|
 | REQ-EP-01 | `src/medicine_booking/booking.py` | `test_prescription_intake_preserves_source_consent_links_and_validation_history` | Local integration |
